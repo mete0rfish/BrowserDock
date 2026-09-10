@@ -17,8 +17,48 @@ jobs:
       - run: dotnet restore UcDotNet.slnx
       - run: dotnet build UcDotNet.slnx --no-restore -m:1
       - run: dotnet test tests/UcDotNet.Tests/UcDotNet.Tests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - if: matrix.framework == 'net10.0'
+        run: dotnet test tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj -f net10.0 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: results-${{ matrix.os }}-${{ matrix.framework }}
-          path: tests/UcDotNet.Tests/TestResults/*.trx
+          path: tests/*/TestResults/*.trx
+  framework481:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Require actual .NET Framework 4.8.1 runtime
+        shell: pwsh
+        run: |
+          $release = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release
+          if ($release -lt 533320) { throw '.NET Framework 4.8.1 runtime is required.' }
+          Write-Host "Framework Release=$release"
+      - run: dotnet restore UcDotNet.slnx
+      - run: dotnet build UcDotNet.slnx --no-restore -m:1
+      - run: dotnet test tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj -f net481 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - run: dotnet pack src/UcDotNet -c Release --no-restore -o .artifacts/packages
+      - run: dotnet pack src/UcDotNet.Legacy -c Release --no-restore -o .artifacts/packages
+      - name: Build classic C# 7.3 consumer from packages
+        shell: pwsh
+        run: |
+          msbuild tests/UcDotNet.ClassicConsumer/ClassicConsumer.csproj -restore -m:1 -p:Configuration=Release "-p:RestoreAdditionalProjectSources=$pwd/.artifacts/packages"
+          if ($LASTEXITCODE -ne 0) { throw 'Classic package consumer build failed.' }
+          & ./tests/UcDotNet.ClassicConsumer/bin/Release/ClassicConsumer.exe
+          if ($LASTEXITCODE -ne 2) { throw 'Expected usage exit code from classic consumer.' }
+          exit 0
+      - name: Load C# 7.3 sample on Framework runtime
+        shell: pwsh
+        run: |
+          & ./samples/Framework481/bin/Debug/net481/Framework481.exe
+          if ($LASTEXITCODE -ne 2) { throw 'Expected usage exit code from Framework sample.' }
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-framework481
+          path: tests/UcDotNet.FrameworkTests/TestResults/*.trx

@@ -90,6 +90,6 @@ internal static class DriverPatchCache
         foreach (var edit in edits) edit.Bytes.CopyTo(copy, edit.Offset);
         return copy;
     }
-    internal static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+    internal static string Hash(byte[] bytes) => RuntimeCompatibility.Sha256(bytes);
     private static UcException Mismatch(string message) => new(ErrorCategory.PatchMismatch, message);
 }

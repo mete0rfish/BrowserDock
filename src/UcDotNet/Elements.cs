@@ -14,18 +14,18 @@ public sealed class WebDriverLease : IAsyncDisposable
     public long AttachmentEpoch { get; }
     internal WebDriverLease(UcBrowser browser, long generation, long epoch)
     { Generation = generation; AttachmentEpoch = epoch; Commands = new GuardedCommands(browser, this); }
-    public ValueTask DisposeAsync() { Interlocked.Exchange(ref disposed, 1); return ValueTask.CompletedTask; }
+    public ValueTask DisposeAsync() { Interlocked.Exchange(ref disposed, 1); return default(ValueTask); }
 }
 internal sealed class GuardedCommands(UcBrowser browser, WebDriverLease lease) : IUcWebDriver
 {
     private ValueTask<T> Run<T>(Func<RemoteWebDriver, T> action, CancellationToken token) => browser.CommandAsync(lease.AttachmentEpoch, () => !lease.Disposed, action, token);
-    private async ValueTask Run(Action<RemoteWebDriver> action, CancellationToken token) => await Run(d => { action(d); return true; }, token);
+    private async ValueTask Run(Action<RemoteWebDriver> action, CancellationToken token) => await Run(d => { action(d); return true; }, token).ConfigureAwait(false);
     public ValueTask<string> GetUrlAsync(CancellationToken cancellationToken = default) => Run(d => d.Url, cancellationToken);
     public ValueTask<string> GetTitleAsync(CancellationToken cancellationToken = default) => Run(d => d.Title, cancellationToken);
     public async ValueTask NavigateAsync(Uri url, CancellationToken cancellationToken = default)
     {
         if (lease.Disposed || lease.AttachmentEpoch != browser.AttachmentEpoch) throw new StaleAttachmentException();
-        await browser.NavigateFromLeaseAsync(url, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+        await browser.NavigateFromLeaseAsync(url, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken).ConfigureAwait(false);
     }
     public ValueTask<ElementRef> FindAsync(Locator locator, FindOptions? options = null, CancellationToken cancellationToken = default)
         => browser.FindForLeaseAsync(locator, options ?? new(), lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
@@ -77,17 +77,17 @@ public sealed class ElementRef
     private async ValueTask<T> Run<T>(Func<IWebElement, T> action, CancellationToken token)
     {
         if (AttachmentEpoch != browser.AttachmentEpoch && options.ReacquireOnSessionChange)
-        { var fresh = await ReacquireAsync(token); return await fresh.Run(action, token); }
+        { var fresh = await ReacquireAsync(token).ConfigureAwait(false); return await fresh.Run(action, token).ConfigureAwait(false); }
         return await browser.CommandAsync(AttachmentEpoch, () => true, driver =>
         {
             browser.RestoreElementContext(driver, Target, options.FramePath);
             return action(new WebElement(driver, elementId));
-        }, token);
+        }, token).ConfigureAwait(false);
     }
     public ValueTask<ElementRef> ReacquireAsync(CancellationToken cancellationToken = default) => browser.FindAsync(Locator, options, cancellationToken);
-    public async ValueTask ClickAsync(CancellationToken cancellationToken = default) => await Run(e => { e.Click(); return true; }, cancellationToken);
-    public async ValueTask ClearAsync(CancellationToken cancellationToken = default) => await Run(e => { e.Clear(); return true; }, cancellationToken);
-    public async ValueTask SendKeysAsync(string text, CancellationToken cancellationToken = default) => await Run(e => { e.SendKeys(text); return true; }, cancellationToken);
+    public async ValueTask ClickAsync(CancellationToken cancellationToken = default) => await Run(e => { e.Click(); return true; }, cancellationToken).ConfigureAwait(false);
+    public async ValueTask ClearAsync(CancellationToken cancellationToken = default) => await Run(e => { e.Clear(); return true; }, cancellationToken).ConfigureAwait(false);
+    public async ValueTask SendKeysAsync(string text, CancellationToken cancellationToken = default) => await Run(e => { e.SendKeys(text); return true; }, cancellationToken).ConfigureAwait(false);
     public ValueTask<string> GetTextAsync(CancellationToken cancellationToken = default) => Run(e => e.Text, cancellationToken);
     public ValueTask<string?> GetAttributeAsync(string name, CancellationToken cancellationToken = default) => Run<string?>(e => e.GetDomAttribute(name), cancellationToken);
     public ValueTask<bool> IsDisplayedAsync(CancellationToken cancellationToken = default) => Run(e => e.Displayed, cancellationToken);
