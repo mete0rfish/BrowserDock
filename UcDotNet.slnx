@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/UcDotNet/UcDotNet.csproj" />
+  <Project Path="tests/UcDotNet.Tests/UcDotNet.Tests.csproj" />
+  <Project Path="samples/Lifecycle/Lifecycle.csproj" />
+</Solution>
