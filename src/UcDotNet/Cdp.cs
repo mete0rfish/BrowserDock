@@ -24,7 +24,7 @@ internal sealed class CdpConnection : IAsyncDisposable
     {
         if (endpoint.Scheme != "ws" || !endpoint.IsLoopback) throw new UcException(ErrorCategory.ConfigurationError, "CDP requires a loopback WebSocket endpoint.");
         socket.Options.Proxy = null;
-        await socket.ConnectAsync(endpoint, token);
+        await socket.ConnectAsync(endpoint, token).ConfigureAwait(false);
         reader = ReadAsync();
         dispatcher = DispatchAsync();
     }
@@ -39,10 +39,10 @@ internal sealed class CdpConnection : IAsyncDisposable
             using var cancellation = token.Register(() => completion.TrySetCanceled(token));
             var payload = new Dictionary<string, object?> { ["id"] = id, ["method"] = method, ["params"] = parameters ?? new { } };
             if (session is not null) payload["sessionId"] = session;
-            await sendGate.WaitAsync(token);
-            try { await socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(payload), WebSocketMessageType.Text, true, token); }
+            await sendGate.WaitAsync(token).ConfigureAwait(false);
+            try { await socket.SendAsync(new ArraySegment<byte>(JsonSerializer.SerializeToUtf8Bytes(payload)), WebSocketMessageType.Text, true, token).ConfigureAwait(false); }
             finally { sendGate.Release(); }
-            return await completion.Task;
+            return await completion.Task.ConfigureAwait(false);
         }
         finally { pending.TryRemove(id, out _); }
     }
@@ -57,7 +57,7 @@ internal sealed class CdpConnection : IAsyncDisposable
                 WebSocketReceiveResult result;
                 do
                 {
-                    result = await socket.ReceiveAsync(buffer, lifetime.Token);
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), lifetime.Token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close) throw new WebSocketException("CDP peer closed.");
                     message.Write(buffer, 0, result.Count);
                     if (message.Length > 16 * 1024 * 1024) throw new UcException(ErrorCategory.ProtocolError, "CDP response exceeds the 16 MiB limit.");
@@ -82,7 +82,11 @@ internal sealed class CdpConnection : IAsyncDisposable
     }
     private async Task DispatchAsync()
     {
-        try { await foreach (var item in events.Reader.ReadAllAsync(lifetime.Token)) Event?.Invoke(item); }
+        try
+        {
+            while (await events.Reader.WaitToReadAsync(lifetime.Token).ConfigureAwait(false))
+                while (events.Reader.TryRead(out var item)) Event?.Invoke(item);
+        }
         catch (Exception e) { Fail(e); }
     }
     private void Fail(Exception error)
@@ -93,7 +97,7 @@ internal sealed class CdpConnection : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Fail(new ObjectDisposedException(nameof(CdpConnection)));
-        await Task.WhenAll(reader, dispatcher).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(reader, dispatcher).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         socket.Dispose(); lifetime.Dispose();
     }
 }
@@ -117,21 +121,21 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     public bool ExplicitSelection { get; private set; }
     public async Task InitializeAsync(CancellationToken token)
     {
-        await connection.ConnectAsync(endpoint, token);
+        await connection.ConnectAsync(endpoint, token).ConfigureAwait(false);
         connection.Event += OnEvent;
-        await BrowserAsync("Browser.getVersion", null, token);
-        await ValidateProtocolAsync(token);
-        await BrowserAsync("Browser.setDownloadBehavior", new { behavior = "default", eventsEnabled = true }, token);
-        await BrowserAsync("Target.setDiscoverTargets", new { discover = true }, token);
-        await RefreshAsync(token);
-        if (targets.IsEmpty) { var created = await BrowserAsync("Target.createTarget", new { url = "about:blank" }, token); await RefreshAsync(token); SelectById(created.GetProperty("targetId").GetString()!, false); }
+        await BrowserAsync("Browser.getVersion", null, token).ConfigureAwait(false);
+        await ValidateProtocolAsync(token).ConfigureAwait(false);
+        await BrowserAsync("Browser.setDownloadBehavior", new { behavior = "default", eventsEnabled = true }, token).ConfigureAwait(false);
+        await BrowserAsync("Target.setDiscoverTargets", new { discover = true }, token).ConfigureAwait(false);
+        await RefreshAsync(token).ConfigureAwait(false);
+        if (targets.IsEmpty) { var created = await BrowserAsync("Target.createTarget", new { url = "about:blank" }, token).ConfigureAwait(false); await RefreshAsync(token).ConfigureAwait(false); SelectById(created.GetProperty("targetId").GetString()!, false); }
         else if (Controlled is null && targets.Count == 1) SelectById(targets.Values.Single().Id, false);
-        if (Controlled is not null) await SessionAsync(Controlled.Value, token);
+        if (Controlled is not null) await SessionAsync(Controlled.Value, token).ConfigureAwait(false);
     }
     private async Task ValidateProtocolAsync(CancellationToken token)
     {
         using var http = BrowserHosting.Http();
-        using var protocol = JsonDocument.Parse(await http.GetStringAsync($"http://127.0.0.1:{endpoint.Port}/json/protocol", token));
+        using var protocol = JsonDocument.Parse(await RuntimeCompatibility.HttpStringAsync(http, $"http://127.0.0.1:{endpoint.Port}/json/protocol", token).ConfigureAwait(false));
         var available = new HashSet<string>(StringComparer.Ordinal);
         foreach (var domain in protocol.RootElement.GetProperty("domains").EnumerateArray())
             if (domain.TryGetProperty("commands", out var commands))
@@ -175,7 +179,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     {
         long barrier;
         lock (registrySync) barrier = eventRevision;
-        var result = await BrowserAsync("Target.getTargets", null, token);
+        var result = await BrowserAsync("Target.getTargets", null, token).ConfigureAwait(false);
         lock (registrySync)
         {
             var seen = new HashSet<string>();
@@ -201,27 +205,27 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     public async Task SelectAsync(TargetKey key, CancellationToken token)
     {
         var target = Resolve(key);
-        await SessionAsync(key, token);
-        await BrowserAsync("Target.activateTarget", new { targetId = target.Id }, token);
+        await SessionAsync(key, token).ConfigureAwait(false);
+        await BrowserAsync("Target.activateTarget", new { targetId = target.Id }, token).ConfigureAwait(false);
         Controlled = key; ExplicitSelection = true;
     }
     public async Task<PageSession> SessionAsync(TargetKey? key, CancellationToken token)
     {
         var target = Resolve(key);
         if (sessions.TryGetValue(target.Id, out var existing)) return new(target, existing);
-        var result = await BrowserAsync("Target.attachToTarget", new { targetId = target.Id, flatten = true }, token);
+        var result = await BrowserAsync("Target.attachToTarget", new { targetId = target.Id, flatten = true }, token).ConfigureAwait(false);
         var session = result.GetProperty("sessionId").GetString()!;
-        await connection.SendAsync("Page.enable", null, session, token);
-        await connection.SendAsync("Runtime.enable", null, session, token);
-        await connection.SendAsync("Page.setLifecycleEventsEnabled", new { enabled = true }, session, token);
-        await ApplyScriptsAsync(session, token);
+        await connection.SendAsync("Page.enable", null, session, token).ConfigureAwait(false);
+        await connection.SendAsync("Runtime.enable", null, session, token).ConfigureAwait(false);
+        await connection.SendAsync("Page.setLifecycleEventsEnabled", new { enabled = true }, session, token).ConfigureAwait(false);
+        await ApplyScriptsAsync(session, token).ConfigureAwait(false);
         sessions[target.Id] = session;
         return new(target, session);
     }
     public async Task PrepareControlledAsync(CancellationToken token)
     {
-        var session = await SessionAsync(Controlled, token);
-        await ApplyScriptsAsync(session.SessionId, token);
+        var session = await SessionAsync(Controlled, token).ConfigureAwait(false);
+        await ApplyScriptsAsync(session.SessionId, token).ConfigureAwait(false);
     }
     private async Task ApplyScriptsAsync(string session, CancellationToken token)
     {
@@ -229,46 +233,46 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         if (removeDiscoveredCdcProperties)
         {
             const string discovery = "(() => { const names = new Set(); for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of Object.getOwnPropertyNames(p)) if(/^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$/.test(k)) names.add(k); return [...names].sort(); })()";
-            var found = await connection.SendAsync("Runtime.evaluate", new { expression = discovery, returnByValue = true }, session, token);
+            var found = await connection.SendAsync("Runtime.evaluate", new { expression = discovery, returnByValue = true }, session, token).ConfigureAwait(false);
             if (found.GetProperty("result").TryGetProperty("value", out var names) && names.ValueKind == JsonValueKind.Array)
             {
-                var verified = names.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Where(x => System.Text.RegularExpressions.Regex.IsMatch(x, "^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$")).Distinct().Order(StringComparer.Ordinal).ToArray();
+                var verified = names.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Where(x => System.Text.RegularExpressions.Regex.IsMatch(x, "^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$")).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray();
                 if (verified.Length > 0) registeredScripts.Add($"(() => {{ const names = {JsonSerializer.Serialize(verified)}; for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of names) {{ try {{ delete p[k]; }} catch {{}} }} }})()");
             }
         }
         if (!registered.TryGetValue(session, out var installed)) registered[session] = installed = new(StringComparer.Ordinal);
         foreach (var script in registeredScripts.Distinct(StringComparer.Ordinal))
-            if (!installed.Contains(script)) { await connection.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, session, token); installed.Add(script); }
+            if (!installed.Contains(script)) { await connection.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, session, token).ConfigureAwait(false); installed.Add(script); }
     }
     public Task<JsonElement> BrowserAsync(string method, object? args, CancellationToken token) => connection.SendAsync(method, args, null, token);
     public async Task<JsonElement> PageAsync(string method, object? args, TargetKey? target, CancellationToken token)
     {
-        var session = await SessionAsync(target, token);
-        return await connection.SendAsync(method, args, session.SessionId, token);
+        var session = await SessionAsync(target, token).ConfigureAwait(false);
+        return await connection.SendAsync(method, args, session.SessionId, token).ConfigureAwait(false);
     }
     public async Task ReplaceAsync(CancellationToken token)
     {
         var old = Resolve();
-        var result = await BrowserAsync("Target.createTarget", new { url = "about:blank" }, token);
+        var result = await BrowserAsync("Target.createTarget", new { url = "about:blank" }, token).ConfigureAwait(false);
         var id = result.GetProperty("targetId").GetString()!;
-        await RefreshAsync(token);
+        await RefreshAsync(token).ConfigureAwait(false);
         SelectById(id, true);
-        await SessionAsync(Controlled, token);
-        await BrowserAsync("Target.closeTarget", new { targetId = old.Id }, token);
+        await SessionAsync(Controlled, token).ConfigureAwait(false);
+        await BrowserAsync("Target.closeTarget", new { targetId = old.Id }, token).ConfigureAwait(false);
     }
     public async Task RecoverAsync(CancellationToken token)
     {
         connection.Event -= OnEvent;
-        await connection.DisposeAsync();
+        await connection.DisposeAsync().ConfigureAwait(false);
         connection = new(); sessions.Clear(); registered.Clear();
-        await InitializeAsync(token);
-        if (Controlled is not null) await SessionAsync(Controlled, token);
+        await InitializeAsync(token).ConfigureAwait(false);
+        if (Controlled is not null) await SessionAsync(Controlled, token).ConfigureAwait(false);
     }
     public async Task<PageResult> NavigateAsync(Uri url, NavigationOptions options, Func<CancellationToken, Task>? standard, CancellationToken token)
     {
-        var session = await SessionAsync(options.Target ?? Controlled, token);
-        await connection.SendAsync("Network.enable", null, session.SessionId, token);
-        var tree = await connection.SendAsync("Page.getFrameTree", null, session.SessionId, token);
+        var session = await SessionAsync(options.Target ?? Controlled, token).ConfigureAwait(false);
+        await connection.SendAsync("Network.enable", null, session.SessionId, token).ConfigureAwait(false);
+        var tree = await connection.SendAsync("Page.getFrameTree", null, session.SessionId, token).ConfigureAwait(false);
         var frame = tree.GetProperty("frameTree").GetProperty("frame");
         var frameId = frame.GetProperty("id").GetString();
         var oldLoader = frame.GetProperty("loaderId").GetString();
@@ -289,12 +293,12 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         {
             if (standard is null)
             {
-                var result = await connection.SendAsync("Page.navigate", new { url = url.AbsoluteUri }, session.SessionId, token);
+                var result = await connection.SendAsync("Page.navigate", new { url = url.AbsoluteUri }, session.SessionId, token).ConfigureAwait(false);
                 if (result.TryGetProperty("isDownload", out var download) && download.GetBoolean()) return new(url, redirects, NavigationOutcome.Download);
                 if (result.TryGetProperty("errorText", out _)) throw new UcException(ErrorCategory.ProtocolError, "Chrome rejected navigation.") { BrowserMayHaveAdvanced = true };
                 loader = result.TryGetProperty("loaderId", out var value) ? value.GetString() : null;
             }
-            else await standard(token);
+            else await standard(token).ConfigureAwait(false);
             while (true)
             {
                 token.ThrowIfCancellationRequested();
@@ -342,13 +346,13 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 };
                 if (complete)
                 {
-                    var location = await connection.SendAsync("Runtime.evaluate", new { expression = "location.href", returnByValue = true }, session.SessionId, token);
+                    var location = await connection.SendAsync("Runtime.evaluate", new { expression = "location.href", returnByValue = true }, session.SessionId, token).ConfigureAwait(false);
                     return new(new Uri(location.GetProperty("result").GetProperty("value").GetString()!), redirects, NavigationOutcome.Completed);
                 }
-                await Task.Delay(20, token);
+                await Task.Delay(20, token).ConfigureAwait(false);
             }
         }
         finally { connection.Event -= Observe; }
     }
-    public async ValueTask DisposeAsync() { connection.Event -= OnEvent; await connection.DisposeAsync(); }
+    public async ValueTask DisposeAsync() { connection.Event -= OnEvent; await connection.DisposeAsync().ConfigureAwait(false); }
 }

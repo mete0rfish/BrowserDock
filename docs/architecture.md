@@ -437,7 +437,7 @@ tests/
   UcDotNet.LeakTests/
 ```
 
-배포 package를 반드시 프로젝트 수만큼 나누지는 않는다. `UcDotNet.NativeInput`과 `UcDotNet.Legacy`만 후속 선택 package로 격리한다.
+배포 package를 반드시 프로젝트 수만큼 나누지는 않는다. `UcDotNet.NativeInput`은 후속 선택 package로 남긴다. `UcDotNet.Legacy`는 C# 7.3 / .NET Framework 4.8.1용 선택 package로 구현한다. 공통 core와 Legacy 모두 `net481;net8.0;net10.0`을 target하며, Legacy는 설정·결과·예외를 변환하는 Task facade만 담당한다. Hosting/CDP/WebDriver 엔진과 상태 기계는 core 한 곳에 유지한다. Framework 내부 호환성 구현은 `Compatibility.cs`에 모으고 컴파일러 보조 타입은 internal로 제한한다. 설치 절차는 [Framework 안내](framework481.md)를 참조한다.
 
 ## 16. 테스트 아키텍처
 

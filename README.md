@@ -6,7 +6,14 @@ Windows 11 x64의 headed Chrome을 별도 프로세스로 관리하고, 독립 C
 
 ## 사용
 
-.NET 8 또는 .NET 10과 Windows 11 x64, Chrome 및 호환 ChromeDriver 실행 파일이 필요합니다. Chrome/ChromeDriver는 M115 이상이며 `MAJOR.MINOR.BUILD`가 일치해야 합니다. 라이브러리는 바이너리를 자동 다운로드하지 않습니다.
+.NET Framework 4.8.1, .NET 8 또는 .NET 10과 Windows 11 x64, Chrome 및 호환 ChromeDriver 실행 파일이 필요합니다. Chrome/ChromeDriver는 M115 이상이며 `MAJOR.MINOR.BUILD`가 일치해야 합니다. 라이브러리는 바이너리를 자동 다운로드하지 않습니다.
+
+| 사용하는 프로젝트 | 참조할 패키지 / namespace | 비동기 API |
+|---|---|---|
+| 기존 C# 7.3 / .NET Framework 4.8.1 | `UcDotNet.Legacy` | `Task`, 일반 설정 클래스, `try/finally` 정리 |
+| 최신 C# / .NET 8·10 | `UcDotNet` | 기존 `ValueTask`, record, `await using` |
+
+두 패키지는 같은 엔진을 사용하며 `net481;net8.0;net10.0`용 DLL을 각각 제공합니다. Framework 프로젝트를 .NET 8/10으로 이전할 필요는 없습니다. Framework 사용자는 [설치와 C# 7.3 예제](docs/framework481.md)를 먼저 읽어 주세요. 아래 예제는 최신 C#용입니다.
 
 ```csharp
 using UcDotNet;
@@ -63,7 +70,10 @@ Console.WriteLine(next.Generation);
 dotnet restore UcDotNet.slnx
 dotnet build UcDotNet.slnx --no-restore -m:1
 dotnet test tests/UcDotNet.Tests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
+dotnet test tests/UcDotNet.FrameworkTests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
 ```
+
+저장소 전체 빌드에는 .NET 10 SDK가 필요합니다. Framework DLL도 참조 어셈블리 패키지로 빌드하지만 실제 실행 검증에는 Windows의 .NET Framework 4.8.1 runtime이 필요합니다. `UcDotNet.FixtureHost`의 .NET 10 서버는 테스트 전용이며 제품 실행 의존성이 아닙니다.
 
 Windows 실제 시험:
 

@@ -28,7 +28,7 @@ internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : IComm
     public async Task<Response> ExecuteAsync(Command commandToExecute)
     {
         if (commandToExecute.Name == DriverCommand.Quit) return new Response(commandToExecute.SessionId?.ToString(), null, WebDriverResult.Success);
-        Check(); Interlocked.Increment(ref sent); return Capture(commandToExecute, await inner.ExecuteAsync(commandToExecute));
+        Check(); Interlocked.Increment(ref sent); return Capture(commandToExecute, await inner.ExecuteAsync(commandToExecute).ConfigureAwait(false));
     }
     private Response Capture(Command command, Response response)
     {
@@ -52,7 +52,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     public async Task<T> InvokeAsync<T>(Func<RemoteWebDriver, T> action, CancellationToken token)
     {
         var work = Task.Run(() => action(Driver));
-        try { return await work.WaitAsync(token); }
+        try { return await work.WaitAsync(token).ConfigureAwait(false); }
         catch (OperationCanceledException)
         {
             Executor.Detach(); Process.Terminate(); Executor.Dispose();
@@ -65,8 +65,8 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         Executor.Detach();
         Process.Terminate();
         Executor.Dispose();
-        await Process.WaitAsync(token);
-        await Task.Run(Driver.Dispose).WaitAsync(token);
+        await Process.WaitAsync(token).ConfigureAwait(false);
+        await Task.Run(Driver.Dispose).WaitAsync(token).ConfigureAwait(false);
         Process.Dispose();
     }
     public static async Task<Attachment> CreateAsync(string path, Uri cdp, BrowserTimeouts timeouts, CancellationToken token)
@@ -92,11 +92,11 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                         if (!process.Alive) throw new UcException(ErrorCategory.DriverProcessFailure, "ChromeDriver exited before readiness.");
                         try
                         {
-                            using var result = JsonDocument.Parse(await http.GetStringAsync($"http://127.0.0.1:{port}/status", readiness.Token));
+                            using var result = JsonDocument.Parse(await RuntimeCompatibility.HttpStringAsync(http, $"http://127.0.0.1:{port}/status", readiness.Token).ConfigureAwait(false));
                             if (result.RootElement.GetProperty("value").GetProperty("ready").GetBoolean() && process.Alive && BrowserHosting.OwnsLoopbackListener(process.Id, port)) break;
                         }
                         catch (Exception e) when (e is HttpRequestException or JsonException or KeyNotFoundException) { }
-                        await Task.Delay(50, readiness.Token);
+                        await Task.Delay(50, readiness.Token).ConfigureAwait(false);
                     }
                 }
                 creatingSession = true;
@@ -105,7 +105,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                 var localExecutor = executor;
                 create = Task.Run(() => new RemoteWebDriver(localExecutor, options.ToCapabilities()));
                 using var deadline = new Deadline(timeouts.WebDriverSessionCreate, token);
-                var driver = await create.WaitAsync(deadline.Token);
+                var driver = await create.WaitAsync(deadline.Token).ConfigureAwait(false);
                 return new(process, port, executor, driver);
             }
             catch (Exception e)
@@ -116,10 +116,10 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                 {
                     executor?.Detach();
                     process?.Terminate(); executor?.Dispose();
-                    if (process is not null) { await process.WaitAsync(cleanup.Token); process.Dispose(); }
+                    if (process is not null) { await process.WaitAsync(cleanup.Token).ConfigureAwait(false); process.Dispose(); }
                     if (create is not null)
                     {
-                        try { var late = await create.WaitAsync(cleanup.Token); late.Dispose(); }
+                        try { var late = await create.WaitAsync(cleanup.Token).ConfigureAwait(false); late.Dispose(); }
                         catch (Exception createError) when (createError is not OperationCanceledException || !cleanup.IsCancellationRequested) { }
                     }
                 }

@@ -205,7 +205,7 @@ Selenium의 typed DevTools API도 WebDriver instance가 가진 `debuggerAddress`
 
 ### 6.3 .NET과 Selenium package
 
-MVP target framework는 `net8.0;net10.0`이다. .NET 8 지원 종료일인 2026-11-10까지 두 TFM을 release CI에 포함하며, 2026-11-11 이후 새 release에서는 사전 공지한 정책에 따라 EOL TFM을 제외한다. 이미 배포한 package는 남지만 해당 runtime은 지원 대상이 아니다. Selenium 현재 소스 package 자체는 `net462;netstandard2.0;net8.0`을 target한다. [`Selenium.WebDriver.csproj` L1-L10](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Selenium.WebDriver.csproj#L1-L10)
+기본 MVP의 target framework는 `net8.0;net10.0`이며, §18.3 확장으로 공통 core와 Legacy package에 `net481`을 추가한다. .NET 8 지원 종료일인 2026-11-10까지 두 TFM을 release CI에 포함하며, 2026-11-11 이후 새 release에서는 사전 공지한 정책에 따라 EOL TFM을 제외한다. 이미 배포한 package는 남지만 해당 runtime은 지원 대상이 아니다. Selenium 현재 소스 package 자체는 `net462;netstandard2.0;net8.0`을 target한다. [`Selenium.WebDriver.csproj` L1-L10](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Selenium.WebDriver.csproj#L1-L10)
 
 NativeAOT와 aggressive trimming은 MVP 지원 대상이 아니다. Selenium DevTools API에는 dynamic code/unreferenced code 경고가 명시되어 있으며, UcDotNet이 자체 CDP client를 사용하더라도 Selenium WebDriver 전체의 AOT 적합성을 별도로 검증해야 한다. [`IDevTools.cs` L24-L57](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/DevTools/IDevTools.cs#L24-L57)
 
@@ -286,7 +286,7 @@ UcDotNet
    └─ redaction
 
 선택 package: UcDotNet.NativeInput (후속)
-선택 package: UcDotNet.Legacy (후속 .NET Framework/VB facade)
+선택 package: UcDotNet.Legacy (.NET Framework 4.8.1 / C# 7.3 Task facade)
 ```
 
 ## 9. 공개 API 초안
@@ -712,7 +712,7 @@ MVP에서 target 복구가 모호하면 임의 탭을 선택하지 않고 실패
 
 ### 18.1 MVP
 
-1. Windows 11 x64, headed Chrome, `net8.0;net10.0`(각 runtime 공식 지원 기간 내)
+1. Windows 11 x64, headed Chrome, `net481;net8.0;net10.0`(현대 .NET은 각 runtime 공식 지원 기간 내)
 2. 명시 Chrome/ChromeDriver path와 엄격 version 검사
 3. temporary/caller-owned profile 및 명시 ownership
 4. `remote-debugging-port=0` endpoint 발견과 browser/target session을 구분하는 독립 최소 CDP client
@@ -737,14 +737,17 @@ MVP에서 target 복구가 모호하면 임의 탭을 선택하지 않고 실패
 - WebDriver BiDi가 필요한 수준으로 안정되면 일부 CDP 대체
 - Selenium Grid/원격 host 연구
 - caller가 실행한 외부 Chrome attach 연구
-- .NET Framework 4.8 및 VB.NET facade
+- VB.NET 전용 sample 및 사용성 확장
 
-### 18.3 .NET Framework/VB.NET 선택 확장
+### 18.3 .NET Framework 4.8.1 / C# 7.3 확장
 
-- core는 현대 async API와 지원 중인 .NET LTS에 집중한다.
-- 필요성이 확인되면 `UcDotNet.Legacy`가 .NET Framework 4.8을 target하고 blocking facade가 아니라 `Task` 기반 VB 친화 API, enum/options builder, XML docs와 VB sample을 제공한다.
-- `netstandard2.0`만을 위해 core 기능, cancellation 또는 logging 계약을 약화하지 않는다.
-- .NET Framework 확장은 별도 CI/지원 정책/보안 servicing 약속이 확보된 뒤 출시한다.
+- 공통 core를 `net481;net8.0;net10.0`으로 빌드하여 lifecycle, CDP, epoch와 정리 계약을 공유한다. `net481` 지원을 위해 기존 .NET 8/10 API를 제거하거나 변경하지 않는다.
+- `UcDotNet.Legacy`는 `Task` 기반 API, 일반 enum/options/result 타입을 제공한다. C# 7.3 호출자에게 record, init/required, ValueTask 또는 IAsyncDisposable을 요구하지 않는다. 설정과 컬렉션은 비동기 작업 시작 전에 복사한다.
+- 자원 정리는 `try/finally`에서 `StopAsync` 또는 `DisposeAsync`를 await한다. UI 스레드를 막는 동기 facade는 제공하지 않는다. 라이브러리의 내부 await는 호출자의 SynchronizationContext를 캡처하지 않는다.
+- Framework 전용 timeout/process/file/HTTP/Windows 버전/인수 처리와 WebSocket ArraySegment 경로를 제공한다. Selenium 4.44.0의 net462 asset에서도 공개 executor 계약을 시험한다.
+- Framework 전용 시험은 .NET 10 fixture server를 별도 프로세스로 실행한다. 제품의 Framework 실행에는 현대 .NET runtime이 필요하지 않다.
+- Windows CI에서 실제 net481 runtime의 공통 계약 시험을 실행하고, Windows 11 x64 대화형 환경에서 browser 및 누수 시험을 별도로 수행한다. 빌드 통과만으로 실행 지원 검증을 완료했다고 하지 않는다.
+- .NET Framework 4.8, VB.NET 전용 API/sample, Windows 10, ARM64 지원은 이번 범위에 포함하지 않는다. 설치와 바인딩 설정은 [Framework 안내](framework481.md)를 따른다.
 
 ## 19. 구현 순서
 

@@ -36,13 +36,13 @@ public sealed class UcBrowser : IAsyncDisposable
     public long AttachmentEpoch => admission.Epoch;
     internal (string? Profile, Uri? Endpoint, string? SessionId, int? DriverPort, long Sent) TestSnapshot => (profile?.Path, endpoint, attachment?.SessionId, attachment?.Port, attachment?.Executor.Sent ?? 0);
     internal void InterruptCdpForTest() => cdp!.InterruptForTest();
-    private ValueTask StageAsync(string stage, CancellationToken token) => options.StageHook?.Invoke(stage, token) ?? ValueTask.CompletedTask;
+    private ValueTask StageAsync(string stage, CancellationToken token) => options.StageHook?.Invoke(stage, token) ?? default(ValueTask);
     public BrowserHealthSnapshot Health => new(State, SessionGeneration, AttachmentEpoch, chrome?.Id, attachment?.Process.Id,
         chrome is null ? "NotStarted" : chrome.Alive ? "Running" : "Exited", cdp is null ? "Disconnected" : cdp.Healthy ? "Connected" : "Failed",
         attachment is null ? "None" : attachment.Process.Alive ? "Attached" : "Failed", lastProbe, cleanupFailures);
     public static async ValueTask<UcBrowser> StartAsync(BrowserOptions options, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        RuntimeCompatibility.NotNull(options, nameof(options));
         Validate(options);
         cancellationToken.ThrowIfCancellationRequested();
         var browser = new UcBrowser(options with
@@ -55,29 +55,29 @@ public sealed class UcBrowser : IAsyncDisposable
             await browser.OperationAsync(async token =>
             {
                 browser.SetState(BrowserState.StartingChrome);
-                await browser.StageAsync("validation", token);
+                await browser.StageAsync("validation", token).ConfigureAwait(false);
                 var chromePath = BrowserHosting.LocateChrome(options.ChromeBinaryPath);
                 Version version;
                 using (var deadline = new Deadline(options.Timeouts.ChromeStart, token))
-                    version = await BrowserHosting.ValidateVersionsAsync(chromePath, options.Driver.ExecutablePath, deadline.Token);
-                browser.driverPath = await DriverPatchCache.PrepareAsync(options.Driver, version, options.PatchMode, token);
+                    version = await BrowserHosting.ValidateVersionsAsync(chromePath, options.Driver.ExecutablePath, deadline.Token).ConfigureAwait(false);
+                browser.driverPath = await DriverPatchCache.PrepareAsync(options.Driver, version, options.PatchMode, token).ConfigureAwait(false);
                 browser.profile = Profile.Acquire(options.Profile);
-                await browser.StageAsync("chrome-start", token);
+                await browser.StageAsync("chrome-start", token).ConfigureAwait(false);
                 browser.chrome = new OwnedProcess(chromePath, new[] { "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", $"--user-data-dir={browser.profile.Path}", "--no-first-run", "--no-default-browser-check" }.Concat(options.ChromeArguments).Append("about:blank"), tree: true);
-                await browser.StageAsync("endpoint", token);
-                using (var deadline = new Deadline(options.Timeouts.DevToolsEndpointDiscovery, token)) browser.endpoint = await BrowserHosting.DiscoverAsync(browser.profile, browser.chrome, deadline.Token);
+                await browser.StageAsync("endpoint", token).ConfigureAwait(false);
+                using (var deadline = new Deadline(options.Timeouts.DevToolsEndpointDiscovery, token)) browser.endpoint = await BrowserHosting.DiscoverAsync(browser.profile, browser.chrome, deadline.Token).ConfigureAwait(false);
                 browser.cdp = new(browser.endpoint, options.NewDocumentScripts, options.RemoveDiscoveredCdcProperties);
-                using (var deadline = new Deadline(options.Timeouts.CdpConnect, token)) await browser.cdp.InitializeAsync(deadline.Token);
-                await browser.ProbeAsync(token);
+                using (var deadline = new Deadline(options.Timeouts.CdpConnect, token)) await browser.cdp.InitializeAsync(deadline.Token).ConfigureAwait(false);
+                await browser.ProbeAsync(token).ConfigureAwait(false);
                 browser.SetState(BrowserState.ChromeReady);
-                await browser.AttachCoreAsync(false, token);
+                await browser.AttachCoreAsync(false, token).ConfigureAwait(false);
                 return true;
-            }, options.Timeouts.ChromeStart + options.Timeouts.DevToolsEndpointDiscovery + options.Timeouts.CdpConnect + options.Timeouts.Reconnect, cancellationToken);
+            }, options.Timeouts.ChromeStart + options.Timeouts.DevToolsEndpointDiscovery + options.Timeouts.CdpConnect + options.Timeouts.Reconnect, cancellationToken).ConfigureAwait(false);
             return browser;
         }
         catch (Exception original)
         {
-            try { await browser.StopAsync(); }
+            try { await browser.StopAsync().ConfigureAwait(false); }
             catch (Exception cleanup) { original.Data["CleanupFailure"] = cleanup; }
             if (original is UcException uc) { uc.Diagnostic = browser.Health; uc.CleanupFailures = browser.cleanupFailures; }
             throw;
@@ -85,11 +85,11 @@ public sealed class UcBrowser : IAsyncDisposable
     }
     private static void Validate(BrowserOptions options)
     {
-        if (!OperatingSystem.IsWindows() || RuntimeInformation.OSArchitecture != Architecture.X64 || Environment.OSVersion.Version.Build < 22000)
+        if (!Platform.IsWindows || !Platform.IsX64Process || Platform.WindowsBuild < 22000)
             throw new PlatformNotSupportedException("UcDotNet browser hosting requires Windows 11 x64. Common unit/contract tests can run on other platforms.");
-        ArgumentNullException.ThrowIfNull(options.Driver);
+        RuntimeCompatibility.NotNull(options.Driver, nameof(options.Driver));
         options.Timeouts.Validate();
-        if (!Enum.IsDefined(options.PatchMode) || options.BrowserOwnership != BrowserOwnership.Library) throw new UcException(ErrorCategory.ConfigurationError, "Invalid ownership or patch mode.");
+        if (!Enum.IsDefined(typeof(DriverPatchMode), options.PatchMode) || options.BrowserOwnership != BrowserOwnership.Library) throw new UcException(ErrorCategory.ConfigurationError, "Invalid ownership or patch mode.");
         foreach (var arg in options.ChromeArguments)
         {
             var name = arg.Split('=')[0];
@@ -110,11 +110,11 @@ public sealed class UcBrowser : IAsyncDisposable
         var acquired = false;
         try
         {
-            await lifecycle.WaitAsync(deadline.Token); acquired = true;
-            ObjectDisposedException.ThrowIf(lifetime.IsCancellationRequested, this);
+            await lifecycle.WaitAsync(deadline.Token).ConfigureAwait(false); acquired = true;
+            RuntimeCompatibility.NotDisposed(lifetime.IsCancellationRequested, this);
             if (expectedEpoch is not null && (AttachmentEpoch != expectedEpoch || State != BrowserState.WebDriverAttached)) throw new StaleAttachmentException();
             diagnostics.Write(1000, "Operation started", State, SessionGeneration, AttachmentEpoch, id);
-            return await operation(deadline.Token);
+            return await operation(deadline.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException e) when (!caller.IsCancellationRequested && !lifetime.IsCancellationRequested)
         { throw new UcException(ErrorCategory.OperationTimedOut, "Browser operation exceeded its deadline.", e) { OperationId = id, Diagnostic = Health, BrowserMayHaveAdvanced = e is NavigationCanceledException { BrowserMayHaveAdvanced: true } }; }
@@ -127,26 +127,26 @@ public sealed class UcBrowser : IAsyncDisposable
         if (cdp is null) throw new UcException(ErrorCategory.DevToolsEndpointFailure, "CDP is not initialized.");
         if (!cdp.Healthy)
         {
-            try { using var deadline = new Deadline(options.Timeouts.CdpConnect, token); await cdp.RecoverAsync(deadline.Token); }
+            try { using var deadline = new Deadline(options.Timeouts.CdpConnect, token); await cdp.RecoverAsync(deadline.Token).ConfigureAwait(false); }
             catch { SetState(BrowserState.Faulted); throw; }
         }
-        await cdp.BrowserAsync("Browser.getVersion", null, token);
-        await cdp.RefreshAsync(token);
+        await cdp.BrowserAsync("Browser.getVersion", null, token).ConfigureAwait(false);
+        await cdp.RefreshAsync(token).ConfigureAwait(false);
         lastProbe = DateTimeOffset.UtcNow;
     }
     private async Task AttachCoreAsync(bool reconnect, CancellationToken token)
     {
-        await ProbeAsync(token);
+        await ProbeAsync(token).ConfigureAwait(false);
         if (cdp!.Snapshot().Count > 1 && !cdp.ExplicitSelection) throw new AmbiguousTargetException();
         cdp.Resolve();
         SetState(reconnect ? BrowserState.Reattaching : BrowserState.AttachingWebDriver);
         try
         {
-            await StageAsync(reconnect ? "reconnect" : "driver-start", token);
-            attachment = await Attachment.CreateAsync(driverPath, endpoint!, options.Timeouts, token);
-            await StageAsync("session-created", token);
-            await BindTargetAsync(token);
-            await ProbeAsync(token);
+            await StageAsync(reconnect ? "reconnect" : "driver-start", token).ConfigureAwait(false);
+            attachment = await Attachment.CreateAsync(driverPath, endpoint!, options.Timeouts, token).ConfigureAwait(false);
+            await StageAsync("session-created", token).ConfigureAwait(false);
+            await BindTargetAsync(token).ConfigureAwait(false);
+            await ProbeAsync(token).ConfigureAwait(false);
             if (!attachment.Process.Alive) throw new UcException(ErrorCategory.DriverProcessFailure, "Driver exited while binding target.");
             var epoch = admission.Open();
             Interlocked.Increment(ref generation);
@@ -159,7 +159,7 @@ public sealed class UcBrowser : IAsyncDisposable
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             if (attachment is not null)
             {
-                try { await attachment.DestroyAsync(cleanup.Token); attachment = null; }
+                try { await attachment.DestroyAsync(cleanup.Token).ConfigureAwait(false); attachment = null; }
                 catch (Exception e) { SetState(BrowserState.Faulted); throw new UcException(ErrorCategory.CleanupIncomplete, "Failed attachment could not be cleaned up.", original) { CleanupFailures = [e.GetType().Name] }; }
             }
             if (chrome?.Alive == true && cdp.Healthy) SetState(BrowserState.CdpOnly); else SetState(BrowserState.Faulted);
@@ -171,7 +171,7 @@ public sealed class UcBrowser : IAsyncDisposable
         var target = cdp!.Resolve();
         var marker = "__ucdotnet_" + Guid.NewGuid().ToString("N");
         var value = Guid.NewGuid().ToString("N");
-        await cdp.PageAsync("Runtime.evaluate", new { expression = $"Object.defineProperty(globalThis,{JsonSerializer.Serialize(marker)},{{value:{JsonSerializer.Serialize(value)},configurable:true}})", returnByValue = false }, target.Key, token);
+        await cdp.PageAsync("Runtime.evaluate", new { expression = $"Object.defineProperty(globalThis,{JsonSerializer.Serialize(marker)},{{value:{JsonSerializer.Serialize(value)},configurable:true}})", returnByValue = false }, target.Key, token).ConfigureAwait(false);
         try
         {
             var handle = await attachment!.InvokeAsync(driver =>
@@ -190,19 +190,19 @@ public sealed class UcBrowser : IAsyncDisposable
                 }
                 if (found is null) throw new AmbiguousTargetException();
                 driver.SwitchTo().Window(found); return found;
-            }, token);
+            }, token).ConfigureAwait(false);
             lock (windows) windows[target.Key] = handle;
         }
         finally
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-            try { await cdp.PageAsync("Runtime.evaluate", new { expression = $"delete globalThis[{JsonSerializer.Serialize(marker)}]" }, target.Key, cleanup.Token); }
+            try { await cdp.PageAsync("Runtime.evaluate", new { expression = $"delete globalThis[{JsonSerializer.Serialize(marker)}]" }, target.Key, cleanup.Token).ConfigureAwait(false); }
             catch { diagnostics.Write(1010, "Temporary target binding marker cleanup failed."); }
         }
     }
     private async Task DisconnectCoreAsync(CancellationToken token)
     {
-        if (State == BrowserState.CdpOnly) { await ProbeAsync(token); return; }
+        if (State == BrowserState.CdpOnly) { await ProbeAsync(token).ConfigureAwait(false); return; }
         if (State != BrowserState.WebDriverAttached) throw new UcException(ErrorCategory.ConfigurationError, "Disconnect requires an attached WebDriver.");
         var drained = admission.Close();
         SetState(BrowserState.Disconnecting);
@@ -210,17 +210,17 @@ public sealed class UcBrowser : IAsyncDisposable
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
-            try { await drained.WaitAsync(options.Timeouts.DisconnectDrain, cleanup.Token); }
+            try { await drained.WaitAsync(options.Timeouts.DisconnectDrain, cleanup.Token).ConfigureAwait(false); }
             catch (TimeoutException) { diagnostics.Write(1011, "WebDriver drain timed out; terminating the attachment."); }
             Exception? preparationError = null;
             try
             {
                 using var preparation = new Deadline(TimeSpan.FromSeconds(1), cleanup.Token);
-                await cdp!.PrepareControlledAsync(preparation.Token);
+                await cdp!.PrepareControlledAsync(preparation.Token).ConfigureAwait(false);
             }
             catch (Exception e) { preparationError = e; diagnostics.Write(1012, "Pre-disconnect script preparation failed; continuing driver cleanup."); }
-            if (attachment is not null) { await attachment.DestroyAsync(cleanup.Token); attachment = null; }
-            await ProbeAsync(cleanup.Token);
+            if (attachment is not null) { await attachment.DestroyAsync(cleanup.Token).ConfigureAwait(false); attachment = null; }
+            await ProbeAsync(cleanup.Token).ConfigureAwait(false);
             SetState(BrowserState.CdpOnly);
             if (preparationError is not null) throw new UcException(ErrorCategory.ProtocolError, "Script preparation failed before disconnect; the driver was removed.", preparationError);
         }
@@ -228,13 +228,13 @@ public sealed class UcBrowser : IAsyncDisposable
         token.ThrowIfCancellationRequested();
     }
     public async ValueTask DisconnectWebDriverAsync(CancellationToken cancellationToken = default)
-        => await OperationAsync(async token => { await DisconnectCoreAsync(token); return true; }, options.Timeouts.DisconnectDrain + TimeSpan.FromSeconds(10), cancellationToken);
+        => await OperationAsync(async token => { await DisconnectCoreAsync(token).ConfigureAwait(false); return true; }, options.Timeouts.DisconnectDrain + TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
     public ValueTask EnterCdpOnlyAsync(CancellationToken cancellationToken = default) => DisconnectWebDriverAsync(cancellationToken);
     public ValueTask<WebDriverLease> ReconnectWebDriverAsync(CancellationToken cancellationToken = default)
         => OperationAsync(async token =>
         {
             if (State != BrowserState.CdpOnly) throw new UcException(ErrorCategory.ConfigurationError, "Reconnect requires CdpOnly state.");
-            await AttachCoreAsync(true, token); return NewLease();
+            await AttachCoreAsync(true, token).ConfigureAwait(false); return NewLease();
         }, options.Timeouts.Reconnect, cancellationToken);
     private WebDriverLease NewLease()
     {
@@ -242,18 +242,18 @@ public sealed class UcBrowser : IAsyncDisposable
         return new(this, SessionGeneration, AttachmentEpoch);
     }
     public ValueTask<WebDriverLease> GetWebDriverAsync(CancellationToken cancellationToken = default)
-        => OperationAsync(async token => { await ProbeAsync(token); if (attachment is not null && !attachment.Process.Alive) await RemoveFailedAttachmentAsync(); return NewLease(); }, options.Timeouts.Command, cancellationToken);
+        => OperationAsync(async token => { await ProbeAsync(token).ConfigureAwait(false); if (attachment is not null && !attachment.Process.Alive) await RemoveFailedAttachmentAsync().ConfigureAwait(false); return NewLease(); }, options.Timeouts.Command, cancellationToken);
     public ValueTask<IReadOnlyList<BrowserTarget>> GetTargetsAsync(CancellationToken cancellationToken = default)
-        => OperationAsync(async token => { await ProbeAsync(token); return cdp!.Snapshot(); }, options.Timeouts.Command, cancellationToken);
+        => OperationAsync(async token => { await ProbeAsync(token).ConfigureAwait(false); return cdp!.Snapshot(); }, options.Timeouts.Command, cancellationToken);
     public async ValueTask SelectTargetAsync(TargetKey target, CancellationToken cancellationToken = default)
         => await OperationAsync(async token =>
         {
-            await ProbeAsync(token);
-            await commands.WaitAsync(token);
-            try { await cdp!.SelectAsync(target, token); if (attachment is not null) await BindTargetAsync(token); }
+            await ProbeAsync(token).ConfigureAwait(false);
+            await commands.WaitAsync(token).ConfigureAwait(false);
+            try { await cdp!.SelectAsync(target, token).ConfigureAwait(false); if (attachment is not null) await BindTargetAsync(token).ConfigureAwait(false); }
             finally { commands.Release(); }
             return true;
-        }, options.Timeouts.Command, cancellationToken);
+        }, options.Timeouts.Command, cancellationToken).ConfigureAwait(false);
     internal async ValueTask SwitchKnownWindowAsync(string handle, long epoch, Func<bool> valid, CancellationToken caller)
         => await OperationAsync(async token =>
         {
@@ -265,20 +265,20 @@ public sealed class UcBrowser : IAsyncDisposable
                 if (known.Length != 1) throw new UcException(ErrorCategory.AmbiguousTarget, "Select the corresponding TargetKey before switching to an unbound window handle.");
                 key = known[0].Key;
             }
-            await commands.WaitAsync(token);
-            try { await cdp!.SelectAsync(key, token); await BindTargetAsync(token); }
+            await commands.WaitAsync(token).ConfigureAwait(false);
+            try { await cdp!.SelectAsync(key, token).ConfigureAwait(false); await BindTargetAsync(token).ConfigureAwait(false); }
             finally { commands.Release(); }
             return true;
-        }, options.Timeouts.Command, caller, epoch);
+        }, options.Timeouts.Command, caller, epoch).ConfigureAwait(false);
     internal void ValidateUrl(Uri url)
     {
-        ArgumentNullException.ThrowIfNull(url);
+        RuntimeCompatibility.NotNull(url, nameof(url));
         if (!url.IsAbsoluteUri || !new[] { "http", "https", "about", "data" }.Concat(options.AdditionalUrlSchemes).Contains(url.Scheme, StringComparer.OrdinalIgnoreCase))
             throw new UcException(ErrorCategory.ConfigurationError, "URL scheme is not enabled.");
     }
     internal static void ValidateNavigation(BrowserState state, NavigationOptions options)
     {
-        if (!Enum.IsDefined(options.Mode) || !Enum.IsDefined(options.WaitUntil) || !Enum.IsDefined(options.TargetPolicy) || options.ReconnectDelay < TimeSpan.Zero)
+        if (!Enum.IsDefined(typeof(NavigationMode), options.Mode) || !Enum.IsDefined(typeof(NavigationWaitUntil), options.WaitUntil) || !Enum.IsDefined(typeof(TargetPolicy), options.TargetPolicy) || options.ReconnectDelay < TimeSpan.Zero)
             throw new UcException(ErrorCategory.ConfigurationError, "Invalid navigation options.");
         if ((options.Mode == NavigationMode.Standard && (state != BrowserState.WebDriverAttached || options.TargetPolicy != TargetPolicy.CurrentControlled)) ||
             (options.Mode == NavigationMode.Detached && state is not (BrowserState.WebDriverAttached or BrowserState.CdpOnly)) ||
@@ -296,41 +296,41 @@ public sealed class UcBrowser : IAsyncDisposable
         {
             if (valid?.Invoke() == false) throw new StaleAttachmentException();
             ValidateNavigation(State, navigation);
-            await ProbeAsync(token);
-            if (navigation.Target is not null) await cdp!.SelectAsync(navigation.Target.Value, token);
+            await ProbeAsync(token).ConfigureAwait(false);
+            if (navigation.Target is not null) await cdp!.SelectAsync(navigation.Target.Value, token).ConfigureAwait(false);
             if (navigation.Mode == NavigationMode.Detached && navigation.ReconnectAfterNavigation && cdp!.Snapshot().Count > 1 && !cdp.ExplicitSelection) throw new AmbiguousTargetException();
-            if (navigation.Mode == NavigationMode.Detached && State == BrowserState.WebDriverAttached) await DisconnectCoreAsync(token);
+            if (navigation.Mode == NavigationMode.Detached && State == BrowserState.WebDriverAttached) await DisconnectCoreAsync(token).ConfigureAwait(false);
             var advanced = false;
             try
             {
-                await StageAsync("navigation", token);
-                if (navigation.TargetPolicy == TargetPolicy.ReplaceControlled) await cdp!.ReplaceAsync(token);
+                await StageAsync("navigation", token).ConfigureAwait(false);
+                if (navigation.TargetPolicy == TargetPolicy.ReplaceControlled) await cdp!.ReplaceAsync(token).ConfigureAwait(false);
                 var selected = navigation with { Target = cdp!.Controlled };
                 PageResult result;
                 if (navigation.Mode == NavigationMode.Standard)
                 {
-                    await commands.WaitAsync(token);
+                    await commands.WaitAsync(token).ConfigureAwait(false);
                     try
                     {
-                        await BindTargetAsync(token);
+                        await BindTargetAsync(token).ConfigureAwait(false);
                         advanced = true;
                         using var admitted = admission.Enter(AttachmentEpoch);
-                        result = await cdp.NavigateAsync(url, selected, async ct => await attachment!.InvokeAsync(d => { d.Navigate().GoToUrl(url); return true; }, ct), token);
+                        result = await cdp.NavigateAsync(url, selected, async ct => await attachment!.InvokeAsync(d => { d.Navigate().GoToUrl(url); return true; }, ct).ConfigureAwait(false), token).ConfigureAwait(false);
                     }
                     finally { commands.Release(); }
                 }
-                else { advanced = true; result = await cdp.NavigateAsync(url, selected, null, token); SetState(BrowserState.CdpOnly); }
+                else { advanced = true; result = await cdp.NavigateAsync(url, selected, null, token).ConfigureAwait(false); SetState(BrowserState.CdpOnly); }
                 if (navigation.Mode == NavigationMode.Detached && navigation.ReconnectAfterNavigation)
                 {
-                    if (navigation.ReconnectDelay is { } delay) await Task.Delay(delay, token);
+                    if (navigation.ReconnectDelay is { } delay) await Task.Delay(delay, token).ConfigureAwait(false);
                     using var deadline = new Deadline(this.options.Timeouts.Reconnect, token);
-                    await AttachCoreAsync(true, deadline.Token);
+                    await AttachCoreAsync(true, deadline.Token).ConfigureAwait(false);
                 }
                 return new NavigationResult(result.Url, result.Redirects, result.Outcome, SessionGeneration, AttachmentEpoch);
             }
             catch (Exception e)
             {
-                if (attachment is not null && (!attachment.Process.Alive || e is WebDriverException or OperationCanceledException)) await RemoveFailedAttachmentAsync();
+                if (attachment is not null && (!attachment.Process.Alive || e is WebDriverException or OperationCanceledException)) await RemoveFailedAttachmentAsync().ConfigureAwait(false);
                 if (chrome?.Alive != true) SetState(BrowserState.Faulted);
                 if (e is OperationCanceledException) throw new NavigationCanceledException(caller, advanced);
                 var error = Attachment.Map(e); error.BrowserMayHaveAdvanced = advanced; throw error;
@@ -340,7 +340,7 @@ public sealed class UcBrowser : IAsyncDisposable
     public ValueTask<JsonElement> ExecuteCdpAsync(string method, object? parameters = null, TargetKey? target = null, CancellationToken cancellationToken = default)
         => OperationAsync(async token =>
         {
-            await ProbeAsync(token);
+            await ProbeAsync(token).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(method) || !method.Contains('.')) throw new UcException(ErrorCategory.ConfigurationError, "Use a domain-qualified CDP method.");
             if (method is "Page.navigate" or "Target.createTarget")
             {
@@ -351,30 +351,30 @@ public sealed class UcBrowser : IAsyncDisposable
             if (method.StartsWith("Browser.", StringComparison.Ordinal) || method.StartsWith("Target.", StringComparison.Ordinal))
             {
                 if (target is not null) throw new UcException(ErrorCategory.ConfigurationError, "Browser/Target commands cannot have a page target.");
-                return await cdp!.BrowserAsync(method, parameters, token);
+                return await cdp!.BrowserAsync(method, parameters, token).ConfigureAwait(false);
             }
-            return await cdp!.PageAsync(method, parameters, target, token);
+            return await cdp!.PageAsync(method, parameters, target, token).ConfigureAwait(false);
         }, options.Timeouts.Command, cancellationToken);
     internal async ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, T> action, CancellationToken caller)
     {
         if (!valid() || State != BrowserState.WebDriverAttached || epoch != AttachmentEpoch) throw new StaleAttachmentException();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token);
         using var deadline = new Deadline(options.Timeouts.Command, linked.Token);
-        await commands.WaitAsync(deadline.Token);
+        await commands.WaitAsync(deadline.Token).ConfigureAwait(false);
         Exception? failure = null;
         try
         {
             if (!valid()) throw new StaleAttachmentException();
             using var entered = admission.Enter(epoch);
-            return await attachment!.InvokeAsync(action, deadline.Token);
+            return await attachment!.InvokeAsync(action, deadline.Token).ConfigureAwait(false);
         }
         catch (Exception e) { failure = e; }
         finally { commands.Release(); }
         var mapped = Attachment.Map(failure!);
         if (failure is OperationCanceledException || mapped.Category is ErrorCategory.AttachmentLost or ErrorCategory.OperationTimedOut)
         {
-            await lifecycle.WaitAsync();
-            try { if (epoch == AttachmentEpoch) await RemoveFailedAttachmentAsync(); }
+            await lifecycle.WaitAsync().ConfigureAwait(false);
+            try { if (epoch == AttachmentEpoch) await RemoveFailedAttachmentAsync().ConfigureAwait(false); }
             finally { lifecycle.Release(); }
         }
         if (failure is OperationCanceledException)
@@ -390,8 +390,8 @@ public sealed class UcBrowser : IAsyncDisposable
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
-            if (attachment is not null) { await attachment.DestroyAsync(cleanup.Token); attachment = null; }
-            await ProbeAsync(cleanup.Token); SetState(BrowserState.CdpOnly);
+            if (attachment is not null) { await attachment.DestroyAsync(cleanup.Token).ConfigureAwait(false); attachment = null; }
+            await ProbeAsync(cleanup.Token).ConfigureAwait(false); SetState(BrowserState.CdpOnly);
         }
         catch (Exception e) { cleanupFailures = [e.GetType().Name]; SetState(BrowserState.Faulted); }
     }
@@ -399,7 +399,7 @@ public sealed class UcBrowser : IAsyncDisposable
         => FindForLeaseAsync(locator, options ?? new(), AttachmentEpoch, () => true, cancellationToken);
     internal ValueTask<ElementRef> FindForLeaseAsync(Locator locator, FindOptions find, long epoch, Func<bool> valid, CancellationToken token)
     {
-        ArgumentNullException.ThrowIfNull(locator);
+        RuntimeCompatibility.NotNull(locator, nameof(locator));
         var copy = find with { FramePath = find.FramePath.ToArray() };
         return CommandAsync(epoch, valid, driver =>
         {
@@ -435,20 +435,20 @@ public sealed class UcBrowser : IAsyncDisposable
         var held = false;
         try
         {
-            await lifecycle.WaitAsync(cleanup.Token); held = true;
+            await lifecycle.WaitAsync(cleanup.Token).ConfigureAwait(false); held = true;
             SetState(BrowserState.Disposing);
-            try { await StageAsync("cleanup", cleanup.Token); }
+            try { await StageAsync("cleanup", cleanup.Token).ConfigureAwait(false); }
             catch (Exception e) { failures.Add($"cleanup observer: {e.GetType().Name}"); }
             var drained = admission.Close();
             async Task Step(string name, Func<CancellationToken, Task> action, TimeSpan? limit = null)
             {
-                try { using var deadline = new Deadline(limit ?? TimeSpan.FromSeconds(10), cleanup.Token); await action(deadline.Token); }
+                try { using var deadline = new Deadline(limit ?? TimeSpan.FromSeconds(10), cleanup.Token); await action(deadline.Token).ConfigureAwait(false); }
                 catch (Exception e) { failures.Add($"{name}: {e.GetType().Name}"); }
             }
-            await Step("command drain", ct => drained.WaitAsync(ct), this.options.Timeouts.DisconnectDrain);
+            await Step("command drain", ct => drained.WaitAsync(ct), this.options.Timeouts.DisconnectDrain).ConfigureAwait(false);
             if (attachment is not null)
             {
-                await Step("driver", async ct => { await attachment.DestroyAsync(ct); attachment = null; }, this.options.Timeouts.ForceKillWait);
+                await Step("driver", async ct => { await attachment.DestroyAsync(ct).ConfigureAwait(false); attachment = null; }, this.options.Timeouts.ForceKillWait).ConfigureAwait(false);
             }
             if (chrome is not null)
             {
@@ -457,17 +457,17 @@ public sealed class UcBrowser : IAsyncDisposable
                     try
                     {
                         using var graceful = new Deadline(this.options.Timeouts.GracefulShutdown, cleanup.Token);
-                        try { await cdp.BrowserAsync("Browser.close", null, graceful.Token); } catch (UcException) { /* Browser.close may close the socket before replying. */ }
-                        await chrome.WaitAsync(graceful.Token);
+                        try { await cdp.BrowserAsync("Browser.close", null, graceful.Token).ConfigureAwait(false); } catch (UcException) { /* Browser.close may close the socket before replying. */ }
+                        await chrome.WaitAsync(graceful.Token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) { diagnostics.Write(1030, "Graceful Chrome shutdown timed out; terminating the owned job."); }
                 }
-                await Step("chrome", async ct => { chrome.Terminate(); await chrome.WaitAsync(ct); }, this.options.Timeouts.ForceKillWait);
+                await Step("chrome", async ct => { chrome.Terminate(); await chrome.WaitAsync(ct).ConfigureAwait(false); }, this.options.Timeouts.ForceKillWait).ConfigureAwait(false);
             }
-            if (cdp is not null) await Step("cdp", async ct => { await cdp.DisposeAsync().AsTask().WaitAsync(ct); cdp = null; });
-            if (profile is not null) await Step("profile", async ct => { await profile.CleanupAsync(chrome?.TreeAlive != true, ct); profile = null; }, this.options.Timeouts.ProfileCleanup);
+            if (cdp is not null) await Step("cdp", async ct => { await cdp.DisposeAsync().AsTask().WaitAsync(ct).ConfigureAwait(false); cdp = null; }).ConfigureAwait(false);
+            if (profile is not null) await Step("profile", async ct => { await profile.CleanupAsync(chrome?.TreeAlive != true, ct).ConfigureAwait(false); profile = null; }, this.options.Timeouts.ProfileCleanup).ConfigureAwait(false);
             if (chrome is not null && !chrome.TreeAlive) { chrome.Dispose(); chrome = null; }
-            await Step("diagnostics", async ct => await diagnostics.DisposeAsync().AsTask().WaitAsync(ct));
+            await Step("diagnostics", async ct => await diagnostics.DisposeAsync().AsTask().WaitAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
         }
         catch (Exception e) { failures.Add($"cleanup deadline: {e.GetType().Name}"); }
         finally

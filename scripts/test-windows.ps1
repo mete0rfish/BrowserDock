@@ -8,6 +8,8 @@ $ErrorActionPreference = "Stop"
 if (-not $IsWindows -or [Environment]::OSVersion.Version.Build -lt 22000 -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne "X64") {
     throw "Use PowerShell 7 on Windows 11 x64 with an interactive desktop."
 }
+$frameworkRelease = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release
+if ($frameworkRelease -lt 533320) { throw "Install the .NET Framework 4.8.1 runtime before running Framework tests." }
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $repoRoot
 try {
@@ -23,6 +25,7 @@ try {
         ChromeHash = (Get-FileHash $env:UCDOTNET_CHROME -Algorithm SHA256).Hash
         DriverHash = (Get-FileHash $env:UCDOTNET_DRIVER -Algorithm SHA256).Hash
         Stress = [bool]$Stress
+        FrameworkRelease = $frameworkRelease
         Dotnet = (& dotnet --info | Out-String)
     }
     $metadata | ConvertTo-Json | Set-Content (Join-Path $Results "fixture.json")
@@ -33,6 +36,10 @@ try {
     foreach ($framework in @("net8.0", "net10.0")) {
         & dotnet test tests/UcDotNet.Tests/UcDotNet.Tests.csproj -f $framework --no-build --no-restore --logger "trx;LogFileName=$framework.trx" --results-directory $Results
         if ($LASTEXITCODE -ne 0) { throw "Tests failed for $framework. Review TRX and fixture metadata." }
+    }
+    foreach ($framework in @("net481", "net10.0")) {
+        & dotnet test tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj -f $framework --no-build --no-restore --logger "trx;LogFileName=legacy-$framework.trx" --results-directory $Results
+        if ($LASTEXITCODE -ne 0) { throw "Legacy tests failed for $framework. Review TRX and fixture metadata." }
     }
     Write-Host "Review skipped tests in TRX. Passing common tests does not establish every Windows acceptance criterion."
 } finally { Pop-Location }

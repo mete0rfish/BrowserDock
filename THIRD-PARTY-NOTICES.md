@@ -4,6 +4,8 @@ UcDotNet is an independent implementation based on the behavior contracts in `do
 
 - **Selenium.WebDriver 4.44.0** — Apache-2.0, Selenium contributors / Software Freedom Conservancy. Package metadata and upstream license: https://github.com/SeleniumHQ/selenium/blob/selenium-4.44.0/LICENSE . Preserve applicable upstream license and NOTICE material when redistributing dependencies.
 - **Microsoft.Extensions.Logging.Abstractions 8.0.2** — dependency notices are supplied by its NuGet package. Upstream: https://github.com/dotnet/runtime . Preserve dependency license material when distributing compiled artifacts.
+- **System.Text.Json 8.0.6, System.Threading.Channels 8.0.0, Microsoft.Bcl.AsyncInterfaces 8.0.0** — Framework compatibility dependencies, with transitive supporting assemblies; licenses/notices are supplied by their NuGet packages. Upstream: https://github.com/dotnet/runtime . Preserve applicable dependency license material in binary distributions.
+- **Microsoft.NETFramework.ReferenceAssemblies.net481 1.0.3** — build-only reference assemblies (`PrivateAssets=all`); not bundled in the runtime packages and not a runtime installer.
 - NUnit, NUnit3TestAdapter and Microsoft.NET.Test.Sdk are development-only test dependencies and are not UcDotNet runtime dependencies.
 - Chrome, ChromeDriver and Chrome for Testing are not bundled or downloaded by UcDotNet. Tests require caller-supplied binaries. Their names identify compatibility targets, not endorsement.
 

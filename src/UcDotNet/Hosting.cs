@@ -10,7 +10,7 @@ namespace UcDotNet.Hosting;
 
 internal static class Paths
 {
-    public static string TempRoot => OperatingSystem.IsMacOS() && System.IO.Path.GetTempPath().StartsWith("/var/", StringComparison.Ordinal)
+    public static string TempRoot => Platform.IsMacOS && System.IO.Path.GetTempPath().StartsWith("/var/", StringComparison.Ordinal)
         ? "/private" + System.IO.Path.GetTempPath() : System.IO.Path.GetTempPath();
     public static string Canonical(string path)
     {
@@ -18,7 +18,7 @@ internal static class Paths
         for (var current = full; !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
             if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
                 throw new UcException(ErrorCategory.ConfigurationError, "Symbolic links and reparse points are not accepted for owned resources.");
-        return Path.TrimEndingDirectorySeparator(full);
+        return RuntimeCompatibility.TrimDirectorySeparator(full);
     }
 }
 internal sealed class Profile : IDisposable
@@ -62,15 +62,15 @@ internal sealed class Profile : IDisposable
         var root = Paths.Canonical(System.IO.Path.Combine(Paths.TempRoot, "UcDotNet"));
         if (!Paths.Canonical(Path).StartsWith(root + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new UcException(ErrorCategory.CleanupIncomplete, "Temporary profile escaped its ownership root.");
-        using var marker = JsonDocument.Parse(await File.ReadAllTextAsync(System.IO.Path.Combine(Path, Marker), token));
+        using var marker = JsonDocument.Parse(await RuntimeCompatibility.ReadAllTextAsync(System.IO.Path.Combine(Path, Marker), token).ConfigureAwait(false));
         if (marker.RootElement.GetProperty("Schema").GetInt32() != 1 || marker.RootElement.GetProperty("Nonce").GetString() != nonce || marker.RootElement.GetProperty("Path").GetString() != Path)
             throw new UcException(ErrorCategory.CleanupIncomplete, "Profile ownership marker does not match.");
         while (true)
         {
             token.ThrowIfCancellationRequested();
-            try { await Task.Run(() => Directory.Delete(Path, true)).WaitAsync(token); return; }
-            catch (IOException) { await Task.Delay(100, token); }
-            catch (UnauthorizedAccessException) { await Task.Delay(100, token); }
+            try { await Task.Run(() => Directory.Delete(Path, true)).WaitAsync(token).ConfigureAwait(false); return; }
+            catch (IOException) { await Task.Delay(100, token).ConfigureAwait(false); }
+            catch (UnauthorizedAccessException) { await Task.Delay(100, token).ConfigureAwait(false); }
         }
     }
     public void Dispose() { if (!released) { released = true; profileLock.Dispose(); } }
@@ -94,10 +94,11 @@ internal sealed class OwnedProcess : IDisposable
     {
         executable = Paths.Canonical(path);
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-        foreach (var arg in arguments) info.ArgumentList.Add(arg);
-        if (tree && OperatingSystem.IsWindows())
+        var argumentArray = arguments.ToArray();
+        RuntimeCompatibility.SetArguments(info, argumentArray);
+        if (tree && Platform.IsWindows)
         {
-            (process, job) = WindowsJob.StartSuspended(executable, info.ArgumentList);
+            (process, job) = WindowsJob.StartSuspended(executable, argumentArray);
             stdout = stderr = Task.CompletedTask; // Native Chrome launch has no inherited console/pipe handles.
         }
         else
@@ -112,7 +113,7 @@ internal sealed class OwnedProcess : IDisposable
     private static async Task DrainAsync(StreamReader reader)
     {
         var buffer = new char[4096];
-        try { while (await reader.ReadAsync(buffer) > 0) { } }
+        try { while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0) { } }
         catch (IOException) { }
         catch (ObjectDisposedException) { }
     }
@@ -133,10 +134,10 @@ internal sealed class OwnedProcess : IDisposable
     }
     public async Task WaitAsync(CancellationToken token)
     {
-        await process.WaitForExitAsync(token);
-        await Task.WhenAll(stdout, stderr).WaitAsync(token);
+        await process.WaitForExitAsync(token).ConfigureAwait(false);
+        await Task.WhenAll(stdout, stderr).WaitAsync(token).ConfigureAwait(false);
         if (job is not null)
-            while (WindowsJob.ActiveProcesses(job) != 0) await Task.Delay(25, token);
+            while (WindowsJob.ActiveProcesses(job) != 0) await Task.Delay(25, token).ConfigureAwait(false);
     }
     public void Dispose() { job?.Dispose(); process.Dispose(); }
 }
@@ -207,7 +208,7 @@ internal static class WindowsJob
 }
 internal static class BrowserHosting
 {
-    public static HttpClient Http() => new(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+    public static HttpClient Http() => new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
     public static string LocateChrome(string? specified)
     {
         var candidates = specified is not null ? new[] { specified } : new[]
@@ -223,13 +224,13 @@ internal static class BrowserHosting
         if (!File.Exists(driver)) throw new UcException(ErrorCategory.ConfigurationError, "ChromeDriver executable was not found.");
         var chromeVersion = ParseVersion(FileVersionInfo.GetVersionInfo(chrome).ProductVersion ?? "");
         var info = new ProcessStartInfo(Paths.Canonical(driver)) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-        info.ArgumentList.Add("--version");
+        RuntimeCompatibility.SetArguments(info, new[] { "--version" });
         using var process = Process.Start(info) ?? throw new UcException(ErrorCategory.VersionMismatch, "Unable to read driver version.");
-        var output = process.StandardOutput.ReadToEndAsync(token);
-        var errors = process.StandardError.ReadToEndAsync(token);
-        try { await process.WaitForExitAsync(token); await errors; }
-        catch { if (!process.HasExited) process.Kill(); await process.WaitForExitAsync(); throw; }
-        var version = ParseVersion(await output);
+        var output = RuntimeCompatibility.ReadToEndAsync(process.StandardOutput, token);
+        var errors = RuntimeCompatibility.ReadToEndAsync(process.StandardError, token);
+        try { await process.WaitForExitAsync(token).ConfigureAwait(false); await errors.ConfigureAwait(false); }
+        catch { if (!process.HasExited) process.Kill(); await process.WaitForExitAsync().ConfigureAwait(false); throw; }
+        var version = ParseVersion(await output.ConfigureAwait(false));
         RequireMatchingVersions(chromeVersion, version);
         return version;
     }
@@ -253,24 +254,24 @@ internal static class BrowserHosting
             if (!chrome.Alive) throw new BrowserExitedException();
             try
             {
-                var lines = await File.ReadAllLinesAsync(Path.Combine(profile.Path, "DevToolsActivePort"), token);
+                var lines = await RuntimeCompatibility.ReadAllLinesAsync(Path.Combine(profile.Path, "DevToolsActivePort"), token).ConfigureAwait(false);
                 if (lines.Length >= 2 && int.TryParse(lines[0], out var port) && port is > 0 and <= 65535 && lines[1].StartsWith("/devtools/browser/", StringComparison.Ordinal))
                 {
-                    using var json = JsonDocument.Parse(await http.GetStringAsync($"http://127.0.0.1:{port}/json/version", token));
+                    using var json = JsonDocument.Parse(await RuntimeCompatibility.HttpStringAsync(http, $"http://127.0.0.1:{port}/json/version", token).ConfigureAwait(false));
                     var ws = new Uri(json.RootElement.GetProperty("webSocketDebuggerUrl").GetString()!);
                     if (ws.Scheme == "ws" && ws.IsLoopback && ws.Port == port && ws.AbsolutePath == lines[1] && chrome.Alive && OwnsLoopbackListener(chrome.Id, port))
                         return new UriBuilder(ws) { Host = "127.0.0.1" }.Uri;
                 }
             }
             catch (Exception e) when (e is IOException or HttpRequestException or JsonException or KeyNotFoundException or UriFormatException) { }
-            await Task.Delay(50, token);
+            await Task.Delay(50, token).ConfigureAwait(false);
         }
     }
     public static int CandidatePort() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
     [DllImport("iphlpapi.dll", SetLastError = true)] private static extern uint GetExtendedTcpTable(IntPtr table, ref int size, bool order, int family, int tableClass, uint reserved);
     public static bool OwnsLoopbackListener(int pid, int port)
     {
-        if (!OperatingSystem.IsWindows()) return false;
+        if (!Platform.IsWindows) return false;
         var size = 0;
         _ = GetExtendedTcpTable(IntPtr.Zero, ref size, false, 2, 3, 0);
         var buffer = Marshal.AllocHGlobal(size);
