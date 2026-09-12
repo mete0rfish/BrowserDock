@@ -3,3 +3,14 @@
 TestResults/
 .artifacts/
 *.user
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+**/reference-results/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem

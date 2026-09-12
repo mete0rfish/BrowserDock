@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="src/BrowserDock/BrowserDock.csproj" />
+  <Project Path="src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
+  <Project Path="tests/BrowserDock.Tests/BrowserDock.Tests.csproj" />
+  <Project Path="tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj" />
+  <Project Path="tests/BrowserDock.FixtureHost/BrowserDock.FixtureHost.csproj" />
+  <Project Path="samples/Lifecycle/Lifecycle.csproj" />
+  <Project Path="samples/Framework481/Framework481.csproj" />
+</Solution>

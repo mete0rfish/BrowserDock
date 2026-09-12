@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <BrowserDockVersion>0.2.0-alpha.1</BrowserDockVersion>
+    <Version>$(BrowserDockVersion)</Version>
+  </PropertyGroup>
+</Project>

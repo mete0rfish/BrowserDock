@@ -1,5 +1,7 @@
 name: Common contracts
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
   common:
     runs-on: ${{ matrix.os }}
@@ -8,18 +10,27 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         framework: [net8.0, net10.0]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: |
             8.0.x
             10.0.x
-      - run: dotnet restore UcDotNet.slnx
-      - run: dotnet build UcDotNet.slnx --no-restore -m:1
-      - run: dotnet test tests/UcDotNet.Tests/UcDotNet.Tests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
-      - if: matrix.framework == 'net10.0'
-        run: dotnet test tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj -f net10.0 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
-      - uses: actions/upload-artifact@v4
+      - run: dotnet restore BrowserDock.slnx
+      - run: dotnet build BrowserDock.slnx --no-restore -m:1
+      - run: dotnet test tests/BrowserDock.Tests/BrowserDock.Tests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - run: dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests/seleniumbase-reference -p test_compare.py -v
+      - run: python -m unittest discover -s tests/tooling -v
+      - shell: pwsh
+        run: ./scripts/test-result-audit.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: results-${{ matrix.os }}-${{ matrix.framework }}
@@ -27,9 +38,12 @@ jobs:
   framework481:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 10.0.x
       - name: Require actual .NET Framework 4.8.1 runtime
@@ -38,17 +52,17 @@ jobs:
           $release = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release
           if ($release -lt 533320) { throw '.NET Framework 4.8.1 runtime is required.' }
           Write-Host "Framework Release=$release"
-      - run: dotnet restore UcDotNet.slnx
-      - run: dotnet build UcDotNet.slnx --no-restore -m:1
-      - run: dotnet test tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj -f net481 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
-      - run: dotnet pack src/UcDotNet -c Release --no-restore -o .artifacts/packages
-      - run: dotnet pack src/UcDotNet.Legacy -c Release --no-restore -o .artifacts/packages
+      - run: dotnet restore BrowserDock.slnx
+      - run: dotnet build BrowserDock.slnx --no-restore -m:1
+      - run: dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f net481 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - run: dotnet pack src/BrowserDock -c Release --no-restore -m:1 -o .artifacts/packages
+      - run: dotnet pack src/BrowserDock.Legacy -c Release --no-restore -m:1 -o .artifacts/packages
       - name: Build classic C# 7.3 consumer from packages
         shell: pwsh
         run: |
-          msbuild tests/UcDotNet.ClassicConsumer/ClassicConsumer.csproj -restore -m:1 -p:Configuration=Release "-p:RestoreAdditionalProjectSources=$pwd/.artifacts/packages"
+          msbuild tests/BrowserDock.ClassicConsumer/ClassicConsumer.csproj -restore -m:1 -p:Configuration=Release "-p:RestoreAdditionalProjectSources=$pwd/.artifacts/packages"
           if ($LASTEXITCODE -ne 0) { throw 'Classic package consumer build failed.' }
-          & ./tests/UcDotNet.ClassicConsumer/bin/Release/ClassicConsumer.exe
+          & ./tests/BrowserDock.ClassicConsumer/bin/Release/ClassicConsumer.exe
           if ($LASTEXITCODE -ne 2) { throw 'Expected usage exit code from classic consumer.' }
           exit 0
       - name: Load C# 7.3 sample on Framework runtime
@@ -57,8 +71,8 @@ jobs:
           & ./samples/Framework481/bin/Debug/net481/Framework481.exe
           if ($LASTEXITCODE -ne 2) { throw 'Expected usage exit code from Framework sample.' }
           exit 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: results-framework481
-          path: tests/UcDotNet.FrameworkTests/TestResults/*.trx
+          path: tests/BrowserDock.FrameworkTests/TestResults/*.trx

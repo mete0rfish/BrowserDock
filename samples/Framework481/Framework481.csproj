@@ -11,7 +11,7 @@
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/UcDotNet.Legacy/UcDotNet.Legacy.csproj" />
+    <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net481" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 </Project>

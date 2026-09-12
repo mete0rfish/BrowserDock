@@ -1,0 +1,16 @@
+name: Feature proposal
+description: Discuss a use case before making a substantial change.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Explain API, compatibility, platform, and testing implications.
+    validations:
+      required: true

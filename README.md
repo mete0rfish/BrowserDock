@@ -1,24 +1,43 @@
-# UcDotNet
+# BrowserDock
 
-Windows 11 x64의 headed Chrome을 별도 프로세스로 관리하고, 독립 CDP 연결과 교체 가능한 Selenium WebDriver attachment를 제공하는 비공식 .NET 라이브러리입니다.
+> Keep the browser. Swap the driver.
 
-**현재 상태:** MVP 구현 및 자동화 시험 코드가 있습니다. Windows 실제 브라우저 수용 시험은 이 개발 환경에서 실행하지 않았습니다. 검증 상태와 제한은 [구현 및 검증 기록](docs/implementation.md)을 확인하세요. 검증된 ChromeDriver 패치 recipe는 아직 포함하지 않습니다.
+[한국어](README.ko.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
-## 사용
+**Experimental.** BrowserDock manages a separately launched Chrome process, an independent CDP connection, and replaceable WebDriver sessions on Windows. Its lifecycle design is inspired by SeleniumBase UC Mode. This independent project is not an official SeleniumBase .NET binding.
 
-.NET Framework 4.8.1, .NET 8 또는 .NET 10과 Windows 11 x64, Chrome 및 호환 ChromeDriver 실행 파일이 필요합니다. Chrome/ChromeDriver는 M115 이상이며 `MAJOR.MINOR.BUILD`가 일치해야 합니다. 라이브러리는 바이너리를 자동 다운로드하지 않습니다.
+Keep Chrome alive while disconnecting WebDriver, then create a new session against the same browser. Old leases and elements fail locally after disconnection; callers explicitly acquire new references.
 
-| 사용하는 프로젝트 | 참조할 패키지 / namespace | 비동기 API |
-|---|---|---|
-| 기존 C# 7.3 / .NET Framework 4.8.1 | `UcDotNet.Legacy` | `Task`, 일반 설정 클래스, `try/finally` 정리 |
-| 최신 C# / .NET 8·10 | `UcDotNet` | 기존 `ValueTask`, record, `await using` |
+## Status and requirements
 
-두 패키지는 같은 엔진을 사용하며 `net481;net8.0;net10.0`용 DLL을 각각 제공합니다. Framework 프로젝트를 .NET 8/10으로 이전할 필요는 없습니다. Framework 사용자는 [설치와 C# 7.3 예제](docs/framework481.md)를 먼저 읽어 주세요. 아래 예제는 최신 C#용입니다.
+No public NuGet release has been published by this project yet. Build from source for evaluation. APIs and behavior may change during the alpha series.
+
+| Requirement | Current scope |
+|---|---|
+| Browser hosting | Windows 11 x64, interactive desktop, headed Chrome |
+| Binaries | Caller-supplied Chrome/ChromeDriver, M115+, matching `MAJOR.MINOR.BUILD` |
+| Modern API | `BrowserDock`: .NET 8/10, ValueTask, records, await using |
+| Existing C# applications | `BrowserDock.Legacy`: Task facade, including C# 7.3/.NET Framework 4.8.1 |
+| Build | .NET 10 SDK; Framework reference assemblies restore through NuGet |
+
+Both packages target `net481;net8.0;net10.0` and share one engine. The .NET 10 fixture server is a test dependency, not a runtime dependency for Framework applications.
+
+Recorded verification: all targets compile; .NET 10 common tests (44 core + 22 Legacy) and five Python comparison-validator tests passed on macOS. **Actual Windows Chrome, .NET 8/Framework runtime tests, and SeleniumBase browser comparisons are not yet verified.** See the [verification record](docs/implementation.md) and [support policy](docs/support.md).
+
+## Build and try
+
+```sh
+dotnet restore BrowserDock.slnx
+dotnet build BrowserDock.slnx --no-restore -m:1
+dotnet run --project samples/Lifecycle -- C:\Chrome\chrome.exe C:\Chrome\chromedriver.exe https://example.com
+```
+
+Run the browser sample on Windows 11 x64. For another application, use a project reference to `src/BrowserDock/BrowserDock.csproj`, or build local packages using the [release guide](docs/releasing.md). Framework users should follow the [C# 7.3 installation and sample](docs/framework481.md).
 
 ```csharp
-using UcDotNet;
+using BrowserDock;
 
-await using var browser = await UcBrowser.StartAsync(new BrowserOptions
+await using var browser = await Browser.StartAsync(new BrowserOptions
 {
     ChromeBinaryPath = @"C:\Chrome\chrome.exe",
     Driver = new() { ExecutablePath = @"C:\Chrome\chromedriver.exe" }
@@ -28,61 +47,54 @@ await browser.NavigateAsync(new Uri("https://example.com"));
 await using var first = await browser.GetWebDriverAsync();
 Console.WriteLine(await first.Commands.GetTitleAsync());
 
-await browser.DisconnectWebDriverAsync(); // Chrome, profile, CDP 유지
+await browser.DisconnectWebDriverAsync(); // Chrome, profile, CDP remain alive.
 await browser.NavigateAsync(new Uri("https://example.com"), new()
 {
     Mode = NavigationMode.CdpOnly
 });
-await using var next = await browser.ReconnectWebDriverAsync(); // 새 session
+await using var next = await browser.ReconnectWebDriverAsync(); // New session.
 Console.WriteLine(next.Generation);
 ```
 
-`ChromeBinaryPath`를 생략하면 표준 설치 위치를 탐색합니다. 드라이버 경로는 필수입니다. 사용자 기본 Chrome 프로필은 사용할 수 없습니다. `Profile.Directory`를 지정하면 프로필을 독점 잠그고 종료 후에도 보존합니다. 생략하면 임시 프로필을 만들고 Chrome 종료 확인 후 삭제합니다.
+## Lifecycle rules
 
-## API 사용 규칙
+- `Standard` navigation needs an attached WebDriver. `Detached` disconnects first and navigates through CDP; set `ReconnectAfterNavigation=true` to attach afterwards.
+- `CdpOnly` requires explicit disconnection and does not reconnect implicitly.
+- Disconnect invalidates existing leases and elements. `ReacquireAsync()` creates a new element from its original locator and frame path. Attachment changes and DOM staleness have different errors.
+- Select targets explicitly with `GetTargetsAsync()` and `SelectTargetAsync()`. Ambiguous targets are errors.
+- Disposing a lease invalidates that lease. Disposing/stopping the browser shuts down its owned Chrome and driver.
+- A supplied profile is exclusively locked and preserved. An automatic temporary profile is deleted after Chrome exits. Default user profiles are rejected.
+- Do not share a lease between concurrent threads. Lifecycle operations are serialized per browser.
+- `NetworkIdle` is best-effort: 500 ms without tracked outstanding requests. Persistent requests can time out.
+- Cancellation does not undo navigation already sent to Chrome. Inspect `BrowserMayHaveAdvanced` on the exception.
 
-- `Standard` navigation은 연결된 WebDriver가 필요합니다. `Detached`는 먼저 연결을 해제한 뒤 CDP로 이동하며 `ReconnectAfterNavigation=true`일 때 새 session을 만듭니다.
-- `CdpOnly` navigation은 명시적으로 WebDriver 연결을 해제한 상태에서 사용합니다. 암묵적으로 연결을 끊거나 복구하지 않습니다.
-- `DisconnectWebDriverAsync()` 시작 시 이전 lease와 요소가 무효화됩니다. reconnect 성공 전에도 이전 참조는 로컬에서 실패합니다.
-- `ElementRef.ReacquireAsync()`는 원 locator와 frame 경로로 새 참조를 반환합니다. 같은 session의 DOM 교체 오류는 `StaleDomElement`, attachment 변경은 `StaleAttachment`입니다.
-- `FindOptions.FramePath`로 iframe locator 경로를 지정합니다. 여러 page target은 `GetTargetsAsync()`와 `SelectTargetAsync()`로 명시적으로 선택합니다.
-- 새 창은 `SelectTargetAsync()`로 CDP target과 WebDriver handle을 대응시킨 뒤 사용합니다. `SwitchToWindowAsync()`는 대응이 확인된 handle만 허용합니다.
-- `WebDriverLease.DisposeAsync()`는 해당 lease만 무효화합니다. `UcBrowser.DisposeAsync()`와 `StopAsync()`는 소유 Chrome까지 종료합니다.
-- Selenium 객체는 공개 API로 반환하지 않습니다. JavaScript 입력·결과는 JSON 호환 값만 허용하며 DOM 요소가 포함된 결과는 거부합니다.
-- lease를 여러 스레드에서 공유하지 마세요. lifecycle 작업은 직렬화하며, 실행 중 명령은 disconnect 시 제한 시간만 기다립니다.
-- `ExecuteCdpAsync()`는 고급 API입니다. Browser/Target 명령은 browser 연결, 그 외 명령은 선택된 page session으로 보냅니다. 직접 tab·browser 종료나 script 실행을 요청하면 일반 facade의 상태·URL 정책보다 넓은 영향을 줄 수 있습니다.
-- `NetworkIdle`은 500ms 동안 추적 중 요청이 없는 best-effort 완료 조건입니다. 장기 요청이 있는 페이지는 navigation timeout에 도달할 수 있습니다.
-- 취소가 이미 전달된 navigation을 되돌리지는 않습니다. `NavigationCanceledException.BrowserMayHaveAdvanced` 또는 `UcException.BrowserMayHaveAdvanced`를 확인하세요.
+## Boundaries
 
-## 패치와 로그
+Headless mode, GUI input, CAPTCHA solving, automatic binary downloads, external Chrome ownership transfer, and verified binary patch recipes are outside the current scope. No detection-site, WAF, or CAPTCHA success is promised.
 
-패치 기본값은 `Disabled`입니다. `ValidateOnly`는 지원 recipe의 정확한 패턴 수를 검사하고 원본을 사용합니다. `BinaryCompatibility`는 원본을 보존하며 별도 캐시 사본과 hash manifest를 만듭니다. 지원 recipe가 없거나 검증에 실패하면 원본으로 조용히 대체하지 않고 실패합니다. `IDriverPatchStrategy`는 검증된 버전 범위와 길이를 보존하는 패턴을 제공하는 확장점입니다.
+Patching is disabled by default. Opt-in strategies validate exact patterns and preserve the vendor binary; synthetic tests do not prove real binary compatibility. New-document scripts and discovered CDC-property removal are optional.
 
-`BrowserOptions.NewDocumentScripts`는 대상 session마다 중복 없이 등록되며 CDP 복구 후 재등록됩니다. 범용 fingerprint 위장 스크립트는 포함하지 않습니다.
+The facade does not expose raw Selenium objects. `ExecuteCdpAsync()` is advanced: Browser/Target commands and script evaluation can have broader effects than facade operations. Use dedicated profiles and trusted commands.
 
-`RemoveDiscoveredCdcProperties=true`는 실제 문서에서 발견하고 이름 패턴을 검증한 CDC 속성만 다음 문서 시작 시 제거하도록 등록합니다. 기본값은 비활성화이며 효과를 보장하지 않습니다.
+Default logging does not collect cookies, storage, page content, script results, URLs, or CDP payloads. There is no external telemetry. Test artifacts may contain local paths and fixture content; review them before sharing.
 
-`BrowserOptions.Logger`에 `Microsoft.Extensions.Logging.ILogger`를 전달할 수 있습니다. 기본 로그에는 cookie, storage, page 내용, script 결과, URL, CDP payload를 쓰지 않습니다. 외부 telemetry는 없습니다. 느린 logging sink는 제한된 큐 밖에서 실행하며 overflow를 집계합니다.
-
-## 개발과 검증
+## Test and contribute
 
 ```sh
-dotnet restore UcDotNet.slnx
-dotnet build UcDotNet.slnx --no-restore -m:1
-dotnet test tests/UcDotNet.Tests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
-dotnet test tests/UcDotNet.FrameworkTests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
+dotnet test tests/BrowserDock.Tests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
+dotnet test tests/BrowserDock.FrameworkTests -f net10.0 --no-restore --filter 'TestCategory!=Windows'
+python3 -m unittest discover -s tests/seleniumbase-reference -p test_compare.py -v
 ```
 
-저장소 전체 빌드에는 .NET 10 SDK가 필요합니다. Framework DLL도 참조 어셈블리 패키지로 빌드하지만 실제 실행 검증에는 Windows의 .NET Framework 4.8.1 runtime이 필요합니다. `UcDotNet.FixtureHost`의 .NET 10 서버는 테스트 전용이며 제품 실행 의존성이 아닙니다.
-
-Windows 실제 시험:
+On a prepared Windows 11 desktop:
 
 ```powershell
 ./scripts/test-windows.ps1 -Chrome C:\Chrome\chrome.exe -Driver C:\Chrome\chromedriver.exe
-# 100회 수명주기, 20개 병렬 인스턴스까지 포함
-./scripts/test-windows.ps1 -Chrome C:\Chrome\chrome.exe -Driver C:\Chrome\chromedriver.exe -Stress
+# Add -Stress for 100 lifecycle cycles and 20 concurrent browsers.
 ```
 
-실제 Chrome 및 ChromeDriver는 NuGet에 번들하지 않습니다. 외부 Chrome attach, keep-alive 소유권 이전, headless, GUI 입력, 자동 다운로드는 후속 범위입니다. 특정 탐지 사이트, WAF 또는 CAPTCHA 통과를 보장하거나 release gate로 사용하지 않습니다.
+Read the [test plan](docs/test-plan.md), [SeleniumBase reference runner](tests/seleniumbase-reference/README.md), [architecture](docs/architecture.md), and [contribution guide](CONTRIBUTING.md). Include a minimal local reproduction and exact versions in bug reports. Use [SECURITY.md](SECURITY.md) for vulnerabilities.
 
-공개 배포용 프로젝트 라이선스는 아직 결정하지 않았습니다. 의존성과 구현 출처는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 기록합니다.
+## License and provenance
+
+The project license is pending the owner's selection. Publication is blocked until the license and copyright holder are recorded. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency and source provenance.

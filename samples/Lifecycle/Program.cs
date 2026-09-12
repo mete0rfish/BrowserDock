@@ -1,11 +1,11 @@
-using UcDotNet;
+using BrowserDock;
 
 if (args.Length != 3)
 {
     Console.Error.WriteLine("Usage: Lifecycle <chrome.exe> <chromedriver.exe> <http(s) URL>");
     return 2;
 }
-await using var browser = await UcBrowser.StartAsync(new BrowserOptions
+await using var browser = await Browser.StartAsync(new BrowserOptions
 {
     ChromeBinaryPath = args[0], Driver = new() { ExecutablePath = args[1] }
 });

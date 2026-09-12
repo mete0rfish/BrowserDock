@@ -1,4 +1,4 @@
-# UcDotNet 개발 명세
+# BrowserDock 개발 명세
 
 - 문서 상태: 조사 및 3개 독립 정적 검증 반영 초안
 - 조사 기준일: 2026-09-08 (Asia/Seoul)
@@ -11,7 +11,7 @@
 이 문서는 다음 표기를 사용한다.
 
 - **확인된 사실**: 고정 커밋의 실제 소스 또는 공식 문서로 확인한 내용이다.
-- **설계 결정**: UcDotNet에 권장하는 구조 또는 동작이다. 참조 프로젝트의 현재 동작과 같다는 뜻은 아니다.
+- **설계 결정**: BrowserDock에 권장하는 구조 또는 동작이다. 참조 프로젝트의 현재 동작과 같다는 뜻은 아니다.
 - **미검증 가정**: 정적 분석으로는 확정할 수 없으며 구현 단계에서 실행 검증해야 한다.
 
 특정 사이트, CAPTCHA, WAF 또는 봇 탐지 제품에 대한 통과를 제품 요구사항이나 보증으로 삼지 않는다. “UC 호환형”은 수명주기와 호출 패턴의 호환성을 뜻하며 탐지 회피 성공을 뜻하지 않는다.
@@ -43,7 +43,7 @@ GitHub 이슈 [SeleniumBase #2563](https://github.com/seleniumbase/SeleniumBase/
 
 ## 3. 핵심 결론
 
-**설계 결정:** UcDotNet은 **CDP를 장수명 제어면(control plane)** 으로 두고, **Selenium WebDriver는 교체 가능한 단기 attachment** 로 두는 하이브리드 구조를 채택한다.
+**설계 결정:** BrowserDock은 **CDP를 장수명 제어면(control plane)** 으로 두고, **Selenium WebDriver는 교체 가능한 단기 attachment** 로 두는 하이브리드 구조를 채택한다.
 
 이 구조의 핵심은 다음과 같다.
 
@@ -75,7 +75,7 @@ GitHub 이슈 [SeleniumBase #2563](https://github.com/seleniumbase/SeleniumBase/
 
 현재 패치는 ChromeDriver 바이너리에서 두 종류의 `window.cdc_*` 대입/논리식 패턴과 한 종류의 `'$cdc_*';` 문자열 리터럴을 길이가 보존되는 newline 또는 임의 문자열로 치환한다. `is_binary_patched()`는 고정된 과거 CDC marker 하나만 검사하고, `patch_exe()`는 match가 0개여도 성공을 반환할 수 있어 오탐 위험이 있다. [`patcher.py` L201-L247](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/undetected/patcher.py#L201-L247)
 
-**설계 결정:** UcDotNet 패처는 원본을 in-place 수정하지 않는다. 원본 SHA-256과 드라이버 버전을 키로 별도 캐시 사본을 만들고, 예상 match 수가 정확하지 않으면 fail-closed한다. 프로세스 간 named mutex와 원자적 rename을 사용한다. 패치 recipe는 ChromeDriver 버전 범위별로 버전 관리한다.
+**설계 결정:** BrowserDock 패처는 원본을 in-place 수정하지 않는다. 원본 SHA-256과 드라이버 버전을 키로 별도 캐시 사본을 만들고, 예상 match 수가 정확하지 않으면 fail-closed한다. 프로세스 간 named mutex와 원자적 rename을 사용한다. 패치 recipe는 ChromeDriver 버전 범위별로 버전 관리한다.
 
 ### 4.2 런타임 JavaScript 처리와 `get()` 교체
 
@@ -85,11 +85,11 @@ GitHub 이슈 [SeleniumBase #2563](https://github.com/seleniumbase/SeleniumBase/
 
 기본 교체 `get()`은 대상 URL에 별도 HTTP 요청을 먼저 보내 상태 코드, CAPTCHA/Cloudflare 관련 문자열을 검사한다. “special”이고 `cdp_base`가 없을 때만 새 탭을 JavaScript로 열고 이전 탭을 닫은 뒤 reconnect하며, `cdp_base`가 있거나 special이 아니면 `default_get`을 호출한다. [`browser_launcher.py` L489-L557](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L489-L557)
 
-**설계 결정:** UcDotNet MVP는 이 HTTP 사전 요청과 사이트별 challenge 문자열 판별을 복제하지 않는다. 별도 HTTP 클라이언트의 쿠키/TLS/프록시 상태는 실제 Chrome과 다르고 요청을 중복시키며 사이트별 유지보수 부담이 크다. 대신 호출자가 `Standard` 또는 `Detached` navigation을 명시적으로 선택한다. 휴리스틱 policy는 후속 확장점으로만 둔다.
+**설계 결정:** BrowserDock MVP는 이 HTTP 사전 요청과 사이트별 challenge 문자열 판별을 복제하지 않는다. 별도 HTTP 클라이언트의 쿠키/TLS/프록시 상태는 실제 Chrome과 다르고 요청을 중복시키며 사이트별 유지보수 부담이 크다. 대신 호출자가 `Standard` 또는 `Detached` navigation을 명시적으로 선택한다. 휴리스틱 policy는 후속 확장점으로만 둔다.
 
 ### 4.3 navigation 분기
 
-| SeleniumBase 경로 | 실제 동작 | UcDotNet 대응 |
+| SeleniumBase 경로 | 실제 동작 | BrowserDock 대응 |
 |---|---|---|
 | `get()` | HTTP 사전 탐지 후 일반 WebDriver navigation 또는 새 탭/reconnect | MVP에서 자동 사전 탐지 제외; 명시적 policy |
 | `uc_open()` | CDP Mode이면 CDP `get`; 아니면 `setTimeout`으로 `window.location.href`를 예약하고 context exit에서 reconnect | `NavigateAsync(url, Mode=Standard/Detached)` |
@@ -112,7 +112,7 @@ GitHub 이슈 [SeleniumBase #2563](https://github.com/seleniumbase/SeleniumBase/
 
 Python context manager의 `__exit__`는 일반 WebDriver처럼 quit하지 않고 reconnect한다. [`undetected/__init__.py` L690-L695](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/undetected/__init__.py#L690-L695) 이 때문에 navigation 함수의 `with driver:`가 reconnect 경계로 동작한다.
 
-**설계 결정:** UcDotNet은 이 동작을 `using`/`Dispose` 의미로 옮기지 않는다. .NET의 `Dispose`는 최종 자원 해제를 뜻해야 한다. reconnect 경계는 이름이 명확한 async 메서드로만 제공한다.
+**설계 결정:** BrowserDock은 이 동작을 `using`/`Dispose` 의미로 옮기지 않는다. .NET의 `Dispose`는 최종 자원 해제를 뜻해야 한다. reconnect 경계는 이름이 명확한 async 메서드로만 제공한다.
 
 ### 4.5 CDP Mode는 UC navigation과 별개다
 
@@ -125,11 +125,11 @@ Python context manager의 `__exit__`는 일반 WebDriver처럼 quit하지 않고
 - **UC Mode:** 패치된 ChromeDriver와 WebDriver API가 기본이며 필요할 때 driver service를 잠시 끊는다.
 - **CDP Mode:** WebDriver가 끊긴 상태에서 별도 CDP client가 지속적으로 Chrome을 제어한다.
 
-UcDotNet은 둘을 하나의 “stealth mode” boolean으로 합치지 않고 `WebDriverAttached`와 `CdpOnly` 상태로 구분한다.
+BrowserDock은 둘을 하나의 “stealth mode” boolean으로 합치지 않고 `WebDriverAttached`와 `CdpOnly` 상태로 구분한다.
 
 SeleniumBase의 고수준 메서드 중 CDP 대체 구현이 있는 메서드는 WebDriver가 끊긴 동안 CDP 구현으로 dispatch한다. 반면 monkey-patch된 raw `execute_cdp_cmd`는 먼저 WebDriver를 reconnect한 뒤 Selenium의 CDP command를 호출한다. [`browser_launcher.py` L472-L480](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L472-L480), [`browser_launcher.py` L6011-L6016](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L6011-L6016) 또한 일부 일반 Selenium 호출 경로는 연결 상태를 보고 자동 reconnect할 수 있다. [`shared_utils.py` L148-L171](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/fixtures/shared_utils.py#L148-L171)
 
-**미검증 가정:** UcDotNet이 제안하는 “독립 CDP 연결을 WebDriver attachment와 동시에 계속 유지”하는 구조는 SeleniumBase가 입증한 동작이 아니다. SeleniumBase CDP Mode는 WebDriver를 먼저 disconnect한다. 구현 단계에서는 CDP와 ChromeDriver가 동시에 target discovery, navigation 및 Runtime script를 다룰 때 event 손실·target/session 충돌이 없는지 별도 통합 시험해야 한다.
+**미검증 가정:** BrowserDock이 제안하는 “독립 CDP 연결을 WebDriver attachment와 동시에 계속 유지”하는 구조는 SeleniumBase가 입증한 동작이 아니다. SeleniumBase CDP Mode는 WebDriver를 먼저 disconnect한다. 구현 단계에서는 CDP와 ChromeDriver가 동시에 target discovery, navigation 및 Runtime script를 다룰 때 event 손실·target/session 충돌이 없는지 별도 통합 시험해야 한다.
 
 ### 4.6 요소와 GUI 입력
 
@@ -179,7 +179,7 @@ GUI 입력은 WebDriver/CDP input과 별개이며 `pyautogui` 및 프로세스 �
 
 공개 `RemoteWebDriver(Uri, DriverOptions)`로 직접 시작한 ChromeDriver endpoint에 새 session을 만들 수 있다. 다만 vendor command는 `ChromeDriver`/`ChromiumDriver` 하위 형식에서 등록되므로 이 경로는 core W3C 명령 호환만 계약하고 Chrome 전용 Selenium API는 계약하지 않는다. [`RemoteWebDriver.cs` L94-L132](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Remote/RemoteWebDriver.cs#L94-L132), [`ChromeDriver.cs` L59-L69](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Chrome/ChromeDriver.cs#L59-L69), [`ChromiumDriver.cs` L110-L118](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Chromium/ChromiumDriver.cs#L110-L118)
 
-**설계 결정:** UcDotNet은 `DriverService.StopAsync`, service process field 또는 command executor field를 reflection으로 호출하지 않는다. ChromeDriver executable을 라이브러리가 직접 자식 프로세스로 시작하고, attachment마다 새 공개 `RemoteWebDriver`와 공개/protected 확장점으로 만든 `DetachAwareCommandExecutor`를 생성한다. disconnect 순서는 “새 명령 차단 및 epoch 교체 → 복구 정보 snapshot → executor를 detaching 상태로 전환 → 소유 ChromeDriver PID 종료 → stale client dispose”다. detaching executor는 `DriverCommand.Quit`을 로컬 no-op 성공으로 처리하고 transport를 bounded dispose하여, 이미 죽은 endpoint에 DELETE session을 보내며 command timeout까지 매달리지 않게 한다. sync/async dispose 모두 동일 계약을 시험한다.
+**설계 결정:** BrowserDock은 `DriverService.StopAsync`, service process field 또는 command executor field를 reflection으로 호출하지 않는다. ChromeDriver executable을 라이브러리가 직접 자식 프로세스로 시작하고, attachment마다 새 공개 `RemoteWebDriver`와 공개/protected 확장점으로 만든 `DetachAwareCommandExecutor`를 생성한다. disconnect 순서는 “새 명령 차단 및 epoch 교체 → 복구 정보 snapshot → executor를 detaching 상태로 전환 → 소유 ChromeDriver PID 종료 → stale client dispose”다. detaching executor는 `DriverCommand.Quit`을 로컬 no-op 성공으로 처리하고 transport를 bounded dispose하여, 이미 죽은 endpoint에 DELETE session을 보내며 command timeout까지 매달리지 않게 한다. sync/async dispose 모두 동일 계약을 시험한다.
 
 ChromeDriver의 `/session` 생성 경로는 생성자 안에서 동기적으로 실행되며 직접 cancellation을 받지 않는다. [`WebDriver.cs` L50-L79](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/WebDriver.cs#L50-L79), [`WebDriver.cs` L594-L665](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/WebDriver.cs#L594-L665) 전용 작업에서 외부 deadline으로 감싸고, timeout/cancellation 시 정확히 소유한 driver PID만 종료한 뒤 executor를 hard cap 안에 폐기한다. Chrome 상태는 불확실로 표시하고 CDP health를 다시 확인한다. 직접 process 방식을 택하는 이유는 PID, stdout/stderr, readiness와 취소를 정확히 소유하기 위함이며, Selenium의 vendor-specific convenience API를 포기하는 trade-off를 공개한다.
 
@@ -191,7 +191,7 @@ ChromeDriver의 `/session` 생성 경로는 생성자 안에서 동기적으로 
 
 `debuggerAddress` attach는 공식 capability이지만 일반 ChromeDriver launch와 동등하지 않다. automation extension이 없기 때문에 일부 명령은 “operation not supported when using remote debugging”으로 실패한다. 이 오류는 재시도해 해결되는 transient 오류가 아니며 `UnsupportedAttachedCommandException`으로 분류해야 한다.
 
-ChromeDriver의 `detach` capability는 driver 종료와 Chrome 종료의 관계를 제어한다. [ChromeOptions capability 표](https://developer.chrome.com/docs/chromedriver/capabilities) UcDotNet은 defense-in-depth로 attachment마다 `detach=true`를 명시하지만, 외부 실행 Chrome attach에서 모든 종료 경로에 대해 Chrome 보존을 보장한다고 정적으로 단정하지 않는다. Chrome 프로세스 별도 소유, Quit 차단 executor와 AC-01 실행 matrix를 함께 사용한다.
+ChromeDriver의 `detach` capability는 driver 종료와 Chrome 종료의 관계를 제어한다. [ChromeOptions capability 표](https://developer.chrome.com/docs/chromedriver/capabilities) BrowserDock은 defense-in-depth로 attachment마다 `detach=true`를 명시하지만, 외부 실행 Chrome attach에서 모든 종료 경로에 대해 Chrome 보존을 보장한다고 정적으로 단정하지 않는다. Chrome 프로세스 별도 소유, Quit 차단 executor와 AC-01 실행 matrix를 함께 사용한다.
 
 ### 6.2 CDP 제약
 
@@ -201,13 +201,13 @@ Selenium의 `ExecuteCdpCommand()`는 공개 API지만 WebDriver session을 경�
 
 Selenium의 typed DevTools API도 WebDriver instance가 가진 `debuggerAddress`에서 session을 만들며 driver dispose와 함께 폐기된다. [`ChromiumDriver.cs` L308-L370](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Chromium/ChromiumDriver.cs#L308-L370), [`ChromiumDriver.cs` L482-L512](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Chromium/ChromiumDriver.cs#L482-L512) 현재 고정 커밋은 typed domains 150~152와 최대 5-version fallback만 포함한다. [`DevToolsDomains.cs` L25-L46](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/DevTools/DevToolsDomains.cs#L25-L46), [`DevToolsDomains.cs` L75-L124](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/DevTools/DevToolsDomains.cs#L75-L124)
 
-**설계 결정:** UcDotNet 제어면은 Selenium typed CDP에 의존하지 않는 최소 JSON-RPC WebSocket client를 자체 모듈로 둔다. 시작 시 `/json/version`과 필요 시 `/json/protocol`을 읽어 protocol/browser version을 기록하며, 사용하는 domain/method을 최소화하고 tolerant reader를 사용한다. typed 전체 CDP 생성은 비목표다.
+**설계 결정:** BrowserDock 제어면은 Selenium typed CDP에 의존하지 않는 최소 JSON-RPC WebSocket client를 자체 모듈로 둔다. 시작 시 `/json/version`과 필요 시 `/json/protocol`을 읽어 protocol/browser version을 기록하며, 사용하는 domain/method을 최소화하고 tolerant reader를 사용한다. typed 전체 CDP 생성은 비목표다.
 
 ### 6.3 .NET과 Selenium package
 
 기본 MVP의 target framework는 `net8.0;net10.0`이며, §18.3 확장으로 공통 core와 Legacy package에 `net481`을 추가한다. .NET 8 지원 종료일인 2026-11-10까지 두 TFM을 release CI에 포함하며, 2026-11-11 이후 새 release에서는 사전 공지한 정책에 따라 EOL TFM을 제외한다. 이미 배포한 package는 남지만 해당 runtime은 지원 대상이 아니다. Selenium 현재 소스 package 자체는 `net462;netstandard2.0;net8.0`을 target한다. [`Selenium.WebDriver.csproj` L1-L10](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/Selenium.WebDriver.csproj#L1-L10)
 
-NativeAOT와 aggressive trimming은 MVP 지원 대상이 아니다. Selenium DevTools API에는 dynamic code/unreferenced code 경고가 명시되어 있으며, UcDotNet이 자체 CDP client를 사용하더라도 Selenium WebDriver 전체의 AOT 적합성을 별도로 검증해야 한다. [`IDevTools.cs` L24-L57](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/DevTools/IDevTools.cs#L24-L57)
+NativeAOT와 aggressive trimming은 MVP 지원 대상이 아니다. Selenium DevTools API에는 dynamic code/unreferenced code 경고가 명시되어 있으며, BrowserDock이 자체 CDP client를 사용하더라도 Selenium WebDriver 전체의 AOT 적합성을 별도로 검증해야 한다. [`IDevTools.cs` L24-L57](https://github.com/SeleniumHQ/selenium/blob/1303bd5282e36adb47c4605792e48a61c12752c7/dotnet/src/webdriver/DevTools/IDevTools.cs#L24-L57)
 
 ## 7. 목표와 비목표
 
@@ -252,12 +252,12 @@ NativeAOT와 aggressive trimming은 MVP 지원 대상이 아니다. Selenium Dev
 ### 8.2 모듈 구조
 
 ```text
-UcDotNet
+BrowserDock
 ├─ Public
-│  ├─ UcBrowser / UcBrowserBuilder
+│  ├─ Browser / BrowserBuilder
 │  ├─ BrowserOptions / Timeouts / OwnershipPolicy
 │  ├─ NavigationOptions / BrowserState / diagnostics
-│  └─ TargetKey / ElementRef / WebDriverLease / IUcWebDriver
+│  └─ TargetKey / ElementRef / WebDriverLease / IBrowserCommands
 ├─ Hosting
 │  ├─ ChromeLocator
 │  ├─ ProfileManager
@@ -285,8 +285,8 @@ UcDotNet
    ├─ HealthSnapshot
    └─ redaction
 
-선택 package: UcDotNet.NativeInput (후속)
-선택 package: UcDotNet.Legacy (.NET Framework 4.8.1 / C# 7.3 Task facade)
+선택 package: BrowserDock.NativeInput (후속)
+선택 package: BrowserDock.Legacy (.NET Framework 4.8.1 / C# 7.3 Task facade)
 ```
 
 ## 9. 공개 API 초안
@@ -294,14 +294,14 @@ UcDotNet
 다음은 계약을 설명하기 위한 API 초안이며 구현 코드가 아니다. 이름은 구현 중 변경할 수 있다.
 
 ```csharp
-public sealed class UcBrowser : IAsyncDisposable
+public sealed class Browser : IAsyncDisposable
 {
     public BrowserState State { get; }
     public long SessionGeneration { get; }
     public long AttachmentEpoch { get; }
     public BrowserHealthSnapshot Health { get; }
 
-    public static ValueTask<UcBrowser> StartAsync(
+    public static ValueTask<Browser> StartAsync(
         BrowserOptions options,
         CancellationToken cancellationToken = default);
 
@@ -368,7 +368,7 @@ public sealed record NavigationOptions
 
 public sealed class WebDriverLease : IAsyncDisposable
 {
-    public IUcWebDriver Commands { get; }
+    public IBrowserCommands Commands { get; }
     public long Generation { get; }
     public long AttachmentEpoch { get; }
 }
@@ -376,9 +376,9 @@ public sealed class WebDriverLease : IAsyncDisposable
 
 API 규칙:
 
-- `UcBrowser`는 lifecycle mutation을 async 메서드로만 노출한다.
+- `Browser`는 lifecycle mutation을 async 메서드로만 노출한다.
 - `NavigationOptions` 기본값은 `Mode=Standard`, `WaitUntil=Load`, `ReconnectAfterNavigation=false`, `TargetPolicy=CurrentControlled`다. mode별 무의미하거나 모순되는 조합은 아래 navigation matrix대로 무시하거나 거부한다.
-- MVP 공개 API는 raw `IWebDriver`/`IWebElement`를 반환하지 않는다. Selenium `WebElement`는 생성 시 parent driver와 element id를 보관하고 명령을 그 parent로 직접 보내므로 raw 반환은 epoch guard를 우회한다. [`WebElement.cs` L39-L58](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L39-L58), [`WebElement.cs` L704-L710](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L704-L710) `IUcWebDriver`는 지원한다고 명시한 core W3C 작업만 제공하는 guarded facade이며, 모든 명령과 반환 요소를 lifecycle gate와 epoch 검사로 감싼다.
+- MVP 공개 API는 raw `IWebDriver`/`IWebElement`를 반환하지 않는다. Selenium `WebElement`는 생성 시 parent driver와 element id를 보관하고 명령을 그 parent로 직접 보내므로 raw 반환은 epoch guard를 우회한다. [`WebElement.cs` L39-L58](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L39-L58), [`WebElement.cs` L704-L710](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L704-L710) `IBrowserCommands`는 지원한다고 명시한 core W3C 작업만 제공하는 guarded facade이며, 모든 명령과 반환 요소를 lifecycle gate와 epoch 검사로 감싼다.
 - `WebDriverLease`는 발급된 `AttachmentEpoch`에서만 유효하다. disconnect 시작 시 epoch가 즉시 바뀌므로 이전 lease 사용은 네트워크 호출 전에 `StaleAttachmentException`을 낸다. `SessionGeneration`은 성공한 session 번호를 진단하기 위해 별도로 보존한다.
 - `ElementRef`는 locator, frame path, target key, 생성 generation과 attachment epoch를 보관한다. raw element를 내부에 장기 보관하지 않는다.
 - session 변경 뒤 element 작업의 기본값은 **자동 재탐색하지 않고 실패**다. 호출자가 `ReacquireAsync()` 또는 `ReacquireOnSessionChange`를 명시해야 한다. 자동 재탐색이 다른 동일 locator 요소를 클릭하는 위험을 피하기 위함이다.
@@ -506,7 +506,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant App
-    participant Uc as UcBrowser
+    participant Uc as Browser
     participant Chrome
     participant CDP
     participant Driver as ChromeDriver
@@ -530,7 +530,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant App
-    participant Uc as UcBrowser
+    participant Uc as Browser
     participant CDP
     participant Driver as ChromeDriver
     participant Chrome
@@ -622,11 +622,11 @@ MVP에서 target 복구가 모호하면 임의 탭을 선택하지 않고 실패
 
 ### 14.2 동시성
 
-- 한 `UcBrowser`의 시작/종료/navigation/disconnect/reconnect는 단일 async lifecycle gate로 직렬화한다.
+- 한 `Browser`의 시작/종료/navigation/disconnect/reconnect는 단일 async lifecycle gate로 직렬화한다.
 - 동일 WebDriver attachment에 대한 mutation은 병렬 안전을 보장하지 않는다. `WebDriverLease` 하나를 여러 thread에서 공유하지 않도록 문서화한다. Selenium도 test 간 새 WebDriver instance를 권장한다. [Selenium state isolation](https://www.selenium.dev/documentation/test_practices/encouraged/avoid_sharing_state/)
 - CDP request는 numeric id로 multiplex할 수 있으나 target mutation은 target별 queue로 순서를 보존한다.
 - event callback은 transport read loop나 lifecycle lock 안에서 사용자 코드를 실행하지 않는다. bounded channel로 전달하고 overflow policy를 로그로 노출한다.
-- 서로 다른 `UcBrowser` 인스턴스는 병렬 실행 가능해야 한다. 공유되는 patch/cache/profile 자원만 process 간 lock을 사용한다.
+- 서로 다른 `Browser` 인스턴스는 병렬 실행 가능해야 한다. 공유되는 patch/cache/profile 자원만 process 간 lock을 사용한다.
 
 ### 14.3 오류 모델과 복구
 
@@ -742,7 +742,7 @@ MVP에서 target 복구가 모호하면 임의 탭을 선택하지 않고 실패
 ### 18.3 .NET Framework 4.8.1 / C# 7.3 확장
 
 - 공통 core를 `net481;net8.0;net10.0`으로 빌드하여 lifecycle, CDP, epoch와 정리 계약을 공유한다. `net481` 지원을 위해 기존 .NET 8/10 API를 제거하거나 변경하지 않는다.
-- `UcDotNet.Legacy`는 `Task` 기반 API, 일반 enum/options/result 타입을 제공한다. C# 7.3 호출자에게 record, init/required, ValueTask 또는 IAsyncDisposable을 요구하지 않는다. 설정과 컬렉션은 비동기 작업 시작 전에 복사한다.
+- `BrowserDock.Legacy`는 `Task` 기반 API, 일반 enum/options/result 타입을 제공한다. C# 7.3 호출자에게 record, init/required, ValueTask 또는 IAsyncDisposable을 요구하지 않는다. 설정과 컬렉션은 비동기 작업 시작 전에 복사한다.
 - 자원 정리는 `try/finally`에서 `StopAsync` 또는 `DisposeAsync`를 await한다. UI 스레드를 막는 동기 facade는 제공하지 않는다. 라이브러리의 내부 await는 호출자의 SynchronizationContext를 캡처하지 않는다.
 - Framework 전용 timeout/process/file/HTTP/Windows 버전/인수 처리와 WebSocket ArraySegment 경로를 제공한다. Selenium 4.44.0의 net462 asset에서도 공개 executor 계약을 시험한다.
 - Framework 전용 시험은 .NET 10 fixture server를 별도 프로세스로 실행한다. 제품의 Framework 실행에는 현대 .NET runtime이 필요하지 않다.

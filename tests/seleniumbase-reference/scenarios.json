@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "seleniumBaseVersion": "4.53.7",
+  "seleniumBaseCommit": "4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80",
+  "scenarios": [
+    { "id": "SB-01", "expected": { "path": "/reference/page", "title": "BrowserDock reference", "button": "clicked", "input": "reference", "frame": "frame-value", "storage": "kept", "cookie": true, "marker": "kept" } },
+    { "id": "SB-02", "expected": { "path": "/reference/page", "title": "BrowserDock reference", "button": "ready", "input": "", "frame": "", "storage": "kept", "cookie": true, "marker": "kept" } },
+    { "id": "SB-03", "expected": { "path": "/reference/page", "title": "BrowserDock reference", "button": "ready", "input": "", "frame": "", "storage": "kept", "cookie": true, "marker": "" } },
+    { "id": "SB-04", "expected": { "path": "/reference/page#cdp", "title": "BrowserDock reference", "button": "ready", "input": "", "frame": "", "storage": "kept", "cookie": true, "marker": "" } }
+  ]
+}

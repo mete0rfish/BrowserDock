@@ -1,0 +1,23 @@
+<Project>
+  <!-- Fill the author and license after the owner confirms the public identity. -->
+  <PropertyGroup>
+    <Authors></Authors>
+    <RepositoryUrl>https://github.com/mete0rfish/BrowserDock</RepositoryUrl>
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>
+    <PackageTags>selenium;chrome;webdriver;cdp;automation</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../docs/package-readme.md" Pack="true" PackagePath="/README.md" />
+    <None Include="$(MSBuildThisFileDirectory)../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+    <None Include="$(MSBuildThisFileDirectory)../LICENSE" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildThisFileDirectory)../LICENSE')" />
+  </ItemGroup>
+</Project>
