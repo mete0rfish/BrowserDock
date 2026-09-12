@@ -1,4 +1,4 @@
-# UcDotNet 아키텍처
+# BrowserDock 아키텍처
 
 - 문서 상태: 구현 전 아키텍처 기준선
 - 기준 명세: [spec.md](spec.md)
@@ -7,24 +7,24 @@
 
 ## 1. 문서 목적
 
-이 문서는 UcDotNet을 어떤 컴포넌트로 나누고, 각 컴포넌트가 어떤 상태와 자원을 소유하며, 시작·이동·연결 해제·재연결·종료가 어떻게 협력하는지 정의한다.
+이 문서는 BrowserDock을 어떤 컴포넌트로 나누고, 각 컴포넌트가 어떤 상태와 자원을 소유하며, 시작·이동·연결 해제·재연결·종료가 어떻게 협력하는지 정의한다.
 
 [spec.md](spec.md)는 외부에서 관찰할 수 있는 요구사항과 수용 기준의 기준 문서다. 이 문서는 그 요구사항을 구현 가능한 구조로 옮긴다. 두 문서가 충돌하면 임의로 구현하지 않고 두 문서를 같은 변경에서 함께 수정한다.
 
 ## 2. 아키텍처 요약
 
-UcDotNet은 Chrome, CDP, WebDriver의 수명을 분리한 하이브리드 구조다.
+BrowserDock은 Chrome, CDP, WebDriver의 수명을 분리한 하이브리드 구조다.
 
 - **Chrome**은 실제 브라우저 상태와 프로필을 가진 장수명 프로세스다.
 - **CDP control plane**은 Chrome 및 page target을 관찰·선택·이동·복구한다.
 - **WebDriver attachment**는 core W3C 명령을 제공하는 교체 가능한 단기 연결이다.
-- **UcBrowser**는 이 세 계층의 소유권과 상태 전이를 직렬화하는 aggregate root다.
+- **Browser**는 이 세 계층의 소유권과 상태 전이를 직렬화하는 aggregate root다.
 
 disconnect는 브라우저 종료가 아니다. ChromeDriver와 WebDriver session만 폐기하고 Chrome과 CDP를 유지한다. reconnect는 기존 Selenium 객체를 되살리지 않고 새 ChromeDriver 프로세스와 새 WebDriver session을 만든다.
 
 ```mermaid
 flowchart LR
-    App[사용자 애플리케이션] --> API[UcBrowser / guarded API]
+    App[사용자 애플리케이션] --> API[Browser / guarded API]
     API --> LC[Lifecycle Coordinator]
     LC --> Host[Chrome Process Host]
     LC --> CP[CDP Control Plane]
@@ -60,7 +60,7 @@ flowchart LR
 
 ### 4.1 시스템이 소유하는 것
 
-MVP에서 UcDotNet은 다음 자원을 생성하고 추적한다.
+MVP에서 BrowserDock은 다음 자원을 생성하고 추적한다.
 
 | 자원 | 소유권 | 식별 정보 | 최종 정리 |
 |---|---|---|---|
@@ -88,15 +88,15 @@ Selenium typed DevTools API, Selenium Manager 내부 경로, Selenium private se
 
 ### 5.1 Public API
 
-`UcBrowser`가 한 브라우저 인스턴스의 유일한 lifecycle 진입점이다. 상태 조회, navigation, target 선택, WebDriver lease, CDP 고급 명령, 종료를 제공한다.
+`Browser`가 한 브라우저 인스턴스의 유일한 lifecycle 진입점이다. 상태 조회, navigation, target 선택, WebDriver lease, CDP 고급 명령, 종료를 제공한다.
 
-`WebDriverLease`는 raw Selenium 객체가 아니라 `IUcWebDriver` guarded facade를 제공한다. `ElementRef` 역시 raw element가 아니라 locator와 수명 정보를 가진 라이브러리 객체다.
+`WebDriverLease`는 raw Selenium 객체가 아니라 `IBrowserCommands` guarded facade를 제공한다. `ElementRef` 역시 raw element가 아니라 locator와 수명 정보를 가진 라이브러리 객체다.
 
 공개 모델은 Selenium 형식을 최대한 노출하지 않는다. 이 경계 덕분에 Selenium package 업데이트와 attachment 교체가 애플리케이션 상태를 직접 오염시키지 않는다.
 
 ### 5.2 Lifecycle Coordinator
 
-`UcBrowser` 내부의 조정자이며 다음을 책임진다.
+`Browser` 내부의 조정자이며 다음을 책임진다.
 
 - 상태 전이와 lifecycle operation 직렬화
 - 전체 deadline을 단계별 timeout에 배분
@@ -425,19 +425,19 @@ health snapshot은 “connected” boolean 하나가 아니라 Chrome, CDP, WebD
 
 ```text
 src/
-  UcDotNet/                  public API와 lifecycle orchestration
-  UcDotNet.Cdp/              최소 CDP transport/target/page/runtime
-  UcDotNet.Selenium/         guarded W3C attachment adapter
-  UcDotNet.Windows/          process/profile/lock 구현
-  UcDotNet.Patching/         artifact 검증과 선택 patch
+  BrowserDock/                  public API와 lifecycle orchestration
+  BrowserDock.Cdp/              최소 CDP transport/target/page/runtime
+  BrowserDock.Selenium/         guarded W3C attachment adapter
+  BrowserDock.Windows/          process/profile/lock 구현
+  BrowserDock.Patching/         artifact 검증과 선택 patch
 tests/
-  UcDotNet.UnitTests/
-  UcDotNet.ContractTests/
-  UcDotNet.WindowsTests/
-  UcDotNet.LeakTests/
+  BrowserDock.UnitTests/
+  BrowserDock.ContractTests/
+  BrowserDock.WindowsTests/
+  BrowserDock.LeakTests/
 ```
 
-배포 package를 반드시 프로젝트 수만큼 나누지는 않는다. `UcDotNet.NativeInput`은 후속 선택 package로 남긴다. `UcDotNet.Legacy`는 C# 7.3 / .NET Framework 4.8.1용 선택 package로 구현한다. 공통 core와 Legacy 모두 `net481;net8.0;net10.0`을 target하며, Legacy는 설정·결과·예외를 변환하는 Task facade만 담당한다. Hosting/CDP/WebDriver 엔진과 상태 기계는 core 한 곳에 유지한다. Framework 내부 호환성 구현은 `Compatibility.cs`에 모으고 컴파일러 보조 타입은 internal로 제한한다. 설치 절차는 [Framework 안내](framework481.md)를 참조한다.
+배포 package를 반드시 프로젝트 수만큼 나누지는 않는다. `BrowserDock.NativeInput`은 후속 선택 package로 남긴다. `BrowserDock.Legacy`는 C# 7.3 / .NET Framework 4.8.1용 선택 package로 구현한다. 공통 core와 Legacy 모두 `net481;net8.0;net10.0`을 target하며, Legacy는 설정·결과·예외를 변환하는 Task facade만 담당한다. Hosting/CDP/WebDriver 엔진과 상태 기계는 core 한 곳에 유지한다. Framework 내부 호환성 구현은 `Compatibility.cs`에 모으고 컴파일러 보조 타입은 internal로 제한한다. 설치 절차는 [Framework 안내](framework481.md)를 참조한다.
 
 ## 16. 테스트 아키텍처
 

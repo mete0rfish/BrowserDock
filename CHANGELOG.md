@@ -1,0 +1,29 @@
+# Changelog
+
+Public preparation adds English/Korean entry points, contribution/security policies,
+issue forms, dependency update configuration, portable symbols, and a gated NuGet
+candidate/release workflow. Public identity and licensing remain pending owner confirmation.
+
+Public changes are recorded here. Breaking changes during 0.x are described explicitly.
+
+## Unreleased — 0.2.0-alpha.1
+
+### Added
+
+- Independent Chrome ownership, CDP control, and replaceable WebDriver sessions.
+- Attachment epochs, guarded leases, and explicit element reacquisition.
+- Modern and C# 7.3-friendly Task APIs targeting net481/net8.0/net10.0.
+- Local protocol contracts, Windows lifecycle/fault/stress tests, and shared SeleniumBase scenarios.
+- Contribution/security documents, issue templates, and package/release preparation.
+
+### Changed
+
+- Renamed the project, packages, namespaces, public `Browser` type, exception base
+  type, command interface, environment variables, project paths, tests, and docs to
+  BrowserDock. No compatibility aliases are retained because no public release exists.
+
+### Limitations
+
+- Actual Windows acceptance, SeleniumBase browser comparisons, and net481/net8 runtime execution remain unverified in the recorded environment.
+- No verified binary patch recipes, headless mode, GUI input, browser downloads, or CAPTCHA guarantee.
+- No public NuGet release. Earlier 0.1.0/0.2.0 packages were local artifacts.

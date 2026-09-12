@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible lifecycle, protocol, or compatibility problem.
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, follow SECURITY.md. Do not upload profiles, cookies, tokens, or private page content."
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Library version/commit, OS build, architecture, runtime, Chrome/driver versions, patch mode.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Supply a small code sample, local fixture, and execution commands.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include exception category and resources remaining after cleanup.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted test evidence
+      description: Include relevant output and skipped tests. Check attachments for private data.

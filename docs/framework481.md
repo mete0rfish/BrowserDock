@@ -1,6 +1,6 @@
 # .NET Framework 4.8.1에서 시작하기
 
-기존 C# 7.3 프로젝트는 `UcDotNet.Legacy`를 참조하면 됩니다. 이 패키지는 브라우저 제어 엔진인 `UcDotNet`도 함께 참조합니다. 같은 엔진을 C# 7.3에서 쓰기 쉬운 형태로 감싼 API입니다.
+기존 C# 7.3 프로젝트는 `BrowserDock.Legacy`를 참조하면 됩니다. 이 패키지는 브라우저 제어 엔진인 `BrowserDock`도 함께 참조합니다. 같은 엔진을 C# 7.3에서 쓰기 쉬운 형태로 감싼 API입니다.
 
 ## 준비와 프로젝트 설정
 
@@ -9,11 +9,11 @@
 현재 패키지는 공개 NuGet에 게시하지 않았습니다. 저장소에서 먼저 패키지를 생성합니다.
 
 ```sh
-dotnet pack src/UcDotNet -c Release -o .artifacts/packages
-dotnet pack src/UcDotNet.Legacy -c Release -o .artifacts/packages
+dotnet pack src/BrowserDock -c Release -o .artifacts/packages
+dotnet pack src/BrowserDock.Legacy -c Release -o .artifacts/packages
 ```
 
-Visual Studio의 NuGet 패키지 소스에 이 폴더를 추가하고 `UcDotNet.Legacy` 0.2.0을 설치합니다. 의존성 복원을 위해 nuget.org 소스도 유지합니다. 기존 프로젝트는 **PackageReference 방식**을 사용하고 Windows의 Visual Studio/MSBuild로 빌드하세요. `packages.config` 방식의 설치는 이번 검증 범위에 포함하지 않습니다.
+Visual Studio의 NuGet 패키지 소스에 이 폴더를 추가하고 `BrowserDock.Legacy` 0.2.0-alpha.1을 설치합니다. 의존성 복원을 위해 nuget.org 소스도 유지합니다. 기존 프로젝트는 **PackageReference 방식**을 사용하고 Windows의 Visual Studio/MSBuild로 빌드하세요. `packages.config` 방식의 설치는 이번 검증 범위에 포함하지 않습니다.
 
 실행 프로젝트의 `.csproj`에는 다음 설정을 적용합니다. SDK 형식 프로젝트는 `TargetFramework`를 `net481`로, 기존 형식 프로젝트는 `TargetFrameworkVersion`을 `v4.8.1`로 설정합니다.
 
@@ -26,7 +26,7 @@ Visual Studio의 NuGet 패키지 소스에 이 폴더를 추가하고 `UcDotNet.
   <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
 </PropertyGroup>
 <ItemGroup>
-  <PackageReference Include="UcDotNet.Legacy" Version="0.2.0" />
+  <PackageReference Include="BrowserDock.Legacy" Version="0.2.0-alpha.1" />
 </ItemGroup>
 ```
 
@@ -39,13 +39,13 @@ Visual Studio의 NuGet 패키지 소스에 이 폴더를 추가하고 `UcDotNet.
 ```csharp
 using System;
 using System.Threading.Tasks;
-using UcDotNet.Legacy;
+using BrowserDock.Legacy;
 
 public static class BrowserExample
 {
     public static async Task RunAsync()
     {
-        var browser = await UcBrowser.StartAsync(new BrowserOptions
+        var browser = await Browser.StartAsync(new BrowserOptions
         {
             ChromeBinaryPath = @"C:\Chrome\chrome.exe",
             Driver = new DriverArtifactOptions
@@ -85,18 +85,18 @@ dotnet build samples/Framework481 -c Release
 
 옵션은 호출 시 복사합니다. 호출 후 원래 옵션이나 컬렉션을 바꿔도 진행 중인 작업에는 반영되지 않습니다. 복사 중 다른 스레드가 동시에 컬렉션을 수정하는 사용법은 지원하지 않습니다. 같은 설정을 바꿔 다른 브라우저를 시작하는 것은 가능합니다.
 
-예외는 `UcDotNet.Legacy.UcException`과 하위 타입으로 전달됩니다. 재연결 후 오래된 참조는 `StaleAttachmentException`, 취소된 이동은 `NavigationCanceledException`입니다. 취소는 이미 시작한 페이지 이동을 되돌리지 않으므로 `BrowserMayHaveAdvanced`도 확인하세요.
+예외는 `BrowserDock.Legacy.BrowserDockException`과 하위 타입으로 전달됩니다. 재연결 후 오래된 참조는 `StaleAttachmentException`, 취소된 이동은 `NavigationCanceledException`입니다. 취소는 이미 시작한 페이지 이동을 되돌리지 않으므로 `BrowserMayHaveAdvanced`도 확인하세요.
 
 패치 기본값은 비활성화입니다. Legacy의 `DriverPatchRecipe`는 최소·최대 버전(양 끝 포함)과 `PatchPattern` 목록을 받습니다. 검증된 실물 recipe는 포함하지 않습니다.
 
 ## 검증 구분
 
-`UcDotNet.FrameworkTests`는 `net481`과 `net10.0`으로 같은 호환성 시험을 빌드합니다. HTTP/WebSocket 응답을 만드는 `UcDotNet.FixtureHost`만 별도 .NET 10 프로세스로 실행합니다. 따라서 실제 Framework 테스트 프로세스에는 ASP.NET Core 참조가 들어가지 않습니다.
+`BrowserDock.FrameworkTests`는 `net481`과 `net10.0`으로 같은 호환성 시험을 빌드합니다. HTTP/WebSocket 응답을 만드는 `BrowserDock.FixtureHost`만 별도 .NET 10 프로세스로 실행합니다. 따라서 실제 Framework 테스트 프로세스에는 ASP.NET Core 참조가 들어가지 않습니다.
 
 Windows CI는 Framework runtime을 확인한 뒤 `net481` 테스트를 실행합니다. 실제 Chrome 수용 시험은 Windows 11의 대화형 데스크톱에서 `scripts/test-windows.ps1`을 실행해야 합니다. 로컬 빌드 성공과 Windows 실제 실행 결과는 [검증 기록](implementation.md)에 구분해서 기록합니다.
 
-기존 형식 프로젝트의 패키지 소비 시험은 `tests/UcDotNet.ClassicConsumer/ClassicConsumer.csproj`입니다. 패키지 생성 후 Windows의 Developer PowerShell에서 다음과 같이 빌드합니다. 패키지를 먼저 만들어야 하므로 기본 솔루션에는 포함하지 않습니다.
+기존 형식 프로젝트의 패키지 소비 시험은 `tests/BrowserDock.ClassicConsumer/ClassicConsumer.csproj`입니다. 패키지 생성 후 Windows의 Developer PowerShell에서 다음과 같이 빌드합니다. 패키지를 먼저 만들어야 하므로 기본 솔루션에는 포함하지 않습니다.
 
 ```powershell
-msbuild tests/UcDotNet.ClassicConsumer/ClassicConsumer.csproj -restore -m:1 -p:Configuration=Release "-p:RestoreAdditionalProjectSources=$pwd/.artifacts/packages"
+msbuild tests/BrowserDock.ClassicConsumer/ClassicConsumer.csproj -restore -m:1 -p:Configuration=Release "-p:RestoreAdditionalProjectSources=$pwd/.artifacts/packages"
 ```

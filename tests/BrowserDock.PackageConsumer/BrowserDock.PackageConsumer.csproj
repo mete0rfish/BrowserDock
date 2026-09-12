@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BrowserDock" Version="$(BrowserDockVersion)" />
+    <PackageReference Include="BrowserDock.Legacy" Version="$(BrowserDockVersion)" />
+  </ItemGroup>
+</Project>

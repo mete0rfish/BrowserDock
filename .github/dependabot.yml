@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /tests/seleniumbase-reference
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    # Update this intentional reference baseline together with scenarios.json.
+    ignore:
+      - dependency-name: seleniumbase
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

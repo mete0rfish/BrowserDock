@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using UcDotNet.Legacy;
+using BrowserDock.Legacy;
 
 internal static class Program
 {
@@ -11,7 +11,7 @@ internal static class Program
             Console.Error.WriteLine("Usage: Framework481.exe <chrome.exe> <chromedriver.exe> <URL>");
             return 2;
         }
-        UcBrowser browser = null;
+        Browser browser = null;
         try
         {
             var options = new BrowserOptions
@@ -19,7 +19,7 @@ internal static class Program
                 ChromeBinaryPath = args[0],
                 Driver = new DriverArtifactOptions { ExecutablePath = args[1] }
             };
-            browser = await UcBrowser.StartAsync(options);
+            browser = await Browser.StartAsync(options);
             await browser.NavigateAsync(new Uri(args[2]));
             var first = await browser.GetWebDriverAsync();
             try

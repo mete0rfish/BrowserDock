@@ -1,0 +1,49 @@
+name: Windows 11 browser acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      chrome:
+        description: Absolute Chrome path on the interactive runner
+        required: true
+        type: string
+      driver:
+        description: Absolute compatible ChromeDriver path
+        required: true
+        type: string
+      stress:
+        description: Include 100 cycles and 20 concurrent browsers
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  browser:
+    # Register this label only on a Windows 11 x64 runner started in the
+    # interactive user session. A Windows service is not this fixture.
+    runs-on: [self-hosted, Windows, X64, windows-11-interactive]
+    environment: windows-browser
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Run browser acceptance
+        shell: pwsh
+        env:
+          FIXTURE_CHROME: ${{ inputs.chrome }}
+          FIXTURE_DRIVER: ${{ inputs.driver }}
+          FIXTURE_STRESS: ${{ inputs.stress }}
+        run: ./scripts/test-windows.ps1 -Chrome $env:FIXTURE_CHROME -Driver $env:FIXTURE_DRIVER -Stress:($env:FIXTURE_STRESS -eq 'true') -Results .artifacts/browser-acceptance
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/browser-acceptance/
+            tests/BrowserDock.Tests/reference-results/

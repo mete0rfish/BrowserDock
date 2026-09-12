@@ -1,9 +1,0 @@
-<Solution>
-  <Project Path="src/UcDotNet/UcDotNet.csproj" />
-  <Project Path="src/UcDotNet.Legacy/UcDotNet.Legacy.csproj" />
-  <Project Path="tests/UcDotNet.Tests/UcDotNet.Tests.csproj" />
-  <Project Path="tests/UcDotNet.FrameworkTests/UcDotNet.FrameworkTests.csproj" />
-  <Project Path="tests/UcDotNet.FixtureHost/UcDotNet.FixtureHost.csproj" />
-  <Project Path="samples/Lifecycle/Lifecycle.csproj" />
-  <Project Path="samples/Framework481/Framework481.csproj" />
-</Solution>
