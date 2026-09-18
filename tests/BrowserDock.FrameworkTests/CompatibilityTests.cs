@@ -61,8 +61,12 @@ public sealed class CompatibilityTests
     public async Task ProcessWaitHandlesExitBeforeSubscription()
     {
         var info = new ProcessStartInfo(Platform.IsWindows ? "cmd.exe" : "/bin/sh") { UseShellExecute = false, CreateNoWindow = true };
-        RuntimeCompatibility.SetArguments(info, Platform.IsWindows ? new[] { "/c", "exit", "0" } : new[] { "-c", "exit 0" });
+        // cmd.exe parses a command string, not the quoted argv used by native executables.
+        // /d also prevents machine-specific AutoRun commands from affecting the fixture.
+        if (Platform.IsWindows) info.Arguments = "/d /c exit 0";
+        else RuntimeCompatibility.SetArguments(info, new[] { "-c", "exit 0" });
         using var process = Process.Start(info)!;
+        Assert.That(process.WaitForExit(5000), Is.True, "The fixture must exit before subscribing.");
         await TaskCompatibility.WaitAsync(TaskCompatibility.WaitForExitAsync(process), TimeSpan.FromSeconds(5));
         await TaskCompatibility.WaitForExitAsync(process);
         Assert.That(process.ExitCode, Is.Zero);

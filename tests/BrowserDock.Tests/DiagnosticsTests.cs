@@ -10,18 +10,33 @@ public sealed class DiagnosticsTests
     [Test]
     public async Task BlockedSinkDoesNotBlockWriterAndOverflowIsReportedAfterRelease()
     {
-        using var entered = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         var events = new ConcurrentQueue<int>();
-        var logger = new Sink((id, _) => { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException(); events.Enqueue(id); });
+        var logger = new Sink((id, _) => { entered.TrySetResult(true); release.Wait(); events.Enqueue(id); });
         var diagnostics = new Diagnostics(logger);
+        Task? writer = null;
         try
         {
             diagnostics.Write(42, "first");
-            Assert.That(entered.Wait(TimeSpan.FromSeconds(2)), Is.True);
-            await Task.Run(() => { for (var i = 0; i < 2000; i++) diagnostics.Write(43, "queued"); }).WaitAsync(TimeSpan.FromSeconds(2));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // Keep the writer independent of the pool thread deliberately blocked in the sink.
+            writer = Task.Factory.StartNew(() =>
+            {
+                writerStarted.SetResult(true);
+                for (var i = 0; i < 2000; i++) diagnostics.Write(43, "queued");
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await writerStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await writer.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.That(events, Is.Empty, "The writer must finish while the sink is still blocked.");
         }
-        finally { release.Set(); await diagnostics.DisposeAsync(); }
+        finally
+        {
+            release.Set();
+            try { if (writer is not null) await writer.WaitAsync(TimeSpan.FromSeconds(10)); }
+            finally { await diagnostics.DisposeAsync(); }
+        }
         Assert.That(events, Does.Contain(1099));
         Assert.That(diagnostics.ActiveWorkersForTest, Is.Zero);
     }
