@@ -18,9 +18,18 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Changed
 
+- Updated Logging.Abstractions and Microsoft.Bcl.AsyncInterfaces together to 10.0.12
+  to avoid the Framework package downgrade error.
 - Renamed the project, packages, namespaces, public `Browser` type, exception base
   type, command interface, environment variables, project paths, tests, and docs to
   BrowserDock. No compatibility aliases are retained because no public release exists.
+
+### Fixed
+
+- Corrected the Windows process-wait fixture's shell arguments and ensured it exits
+  before testing subscription to an already-exited process.
+- Isolated the diagnostic overflow test writer from thread-pool scheduling delays
+  while retaining the blocked-sink and bounded-write assertions.
 
 ### Limitations
 
