@@ -1,0 +1,48 @@
+name: Korean wiki publication
+on:
+  push:
+    branches: [docs/wiki-ko-20260923]
+    paths:
+      - '.github/workflows/wiki-publish.yml'
+      - 'docs/wiki/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-wiki:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect wiki without changing it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          export GIT_ASKPASS="$RUNNER_TEMP/wiki-askpass.sh"
+          trap 'rm -f "$GIT_ASKPASS"' EXIT
+          cat > "$GIT_ASKPASS" <<'SH'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          SH
+          chmod 700 "$GIT_ASKPASS"
+          url="https://github.com/${GITHUB_REPOSITORY}.wiki.git"
+          git ls-remote --symref "$url" HEAD
+          git clone --depth=1 "$url" "$RUNNER_TEMP/browserdock-wiki"
+          cd "$RUNNER_TEMP/browserdock-wiki"
+          echo 'WIKI_FILE_LIST_BEGIN'
+          git ls-tree -r --name-only HEAD
+          echo 'WIKI_FILE_LIST_END'
+          for file in Home.md _Sidebar.md; do
+            if [ -f "$file" ]; then
+              echo "PAGE_BEGIN $file"
+              cat "$file"
+              echo
+              echo "PAGE_END $file"
+            fi
+          done
