@@ -1,0 +1,28 @@
+{
+  "repository": "mete0rfish/BrowserDock",
+  "source_commit": "8a8612fffe681334c4e6ec8384ab18a6ba66271f",
+  "review_date": "2026-09-23",
+  "page_count": 20,
+  "pages": {
+    "ko-Overview.md": "8eeb1d29ca0a89c86be020d2c5a7c43e115c2b313bcd8713fe91619c52c404d3",
+    "ko-API-Guide.md": "57ada464006368237bca328841cb011cf8ff7886061d932ca66f657d315028a5",
+    "ko-Code-Map.md": "8758ff85dffb0d6b8cb0316426429378f53640f21d87e26bbe027944dd3b7a06",
+    "ko-Limitations.md": "b5895fd19c425788c713185971d99f7695380e879431a6e7a9b5b5fa081c1304",
+    "ko-Getting-Started.md": "681b20e3471c8c7f4d0562f93d83891530063656801e563167db5f7de8ae97ed",
+    "_Sidebar.md": "8816fd46ec1dcc7d10fd194bff1d0cb931406f083ce8bc24c1c093eb37372d78",
+    "ko-Contributing.md": "c3276010d92aecd19cb3297362cfba37b7837decb899b1879d4a138f2e933fd4",
+    "ko-Testing.md": "63f4d04e16948c51159c8a533eecba9ad3cfaea3fc1c2bbee56b33b171afe44a",
+    "ko-Resource-Safety.md": "8342f80c74f708fc9199306648e5978254bbae28c5a3d61ce157bdcb756acea4",
+    "ko-Debugging.md": "507d3b0224f8b32e4989c27e8da869d31fd6f8734f8c809668f8a198bdc7c4e4",
+    "ko-WebDriver-References.md": "f22bfb9b49632388d67f2ff8a2dc33402ed0c827d4f103e2a9170187bbc1e7a1",
+    "ko-Home.md": "c81ccdefb2782d4fbac2574da9fd77ae3dc2cc92c3acdc21f8bccd2da1968ffd",
+    "ko-CDP.md": "a611f634efffa55203a0dca9df7765c00e44302679b10d3f016ab16d29aa9cd7",
+    "ko-Design-Decisions.md": "9fa3835ca268e9744254d2615ad29bff9f96a0c9432cf724bf944b9d0b3f210f",
+    "ko-Architecture.md": "c68bb3c5c7381fe01571fabbc378a41b38322d4155b61e7e4ef4e50194478afc",
+    "ko-Core-Concepts.md": "ee27cdb4b6f3cddbd86e58fd49783b4c19123d6dc00552772afdc6badcf980e9",
+    "ko-Browser-Lifecycle.md": "646d1a5e2c113282ac0de43f124e6c502ce70bb9f05972b806a0ad0e8bda7552",
+    "Home.md": "bdfe5e82953aa2de921e2d2372deb4e75ef5387861a190d87fa7dced83e38b2c",
+    "ko-Glossary.md": "6790e1db5186da50cc5587e9e830f04838d44ec5139342695b46c86c2cab45ee",
+    "_Footer.md": "582a9c256e71d66dc4fa0c8a4eac1b335b7ff714b1c13827fea1efe8991a80f5"
+  }
+}

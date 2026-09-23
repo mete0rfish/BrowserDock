@@ -5,20 +5,38 @@ on:
     paths:
       - '.github/workflows/wiki-publish.yml'
       - 'docs/wiki/**'
+      - 'docs/wiki-manifest.json'
+      - 'scripts/publish-wiki-ko.py'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: browserdock-korean-wiki-publication
+  cancel-in-progress: false
 jobs:
-  inspect-wiki:
+  publish-wiki:
+    if: github.repository == 'mete0rfish/BrowserDock' && github.ref == 'refs/heads/docs/wiki-ko-20260923'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
-      - name: Inspect wiki without changing it
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate authored Korean pages
+        run: python3 scripts/publish-wiki-ko.py --check-only
+      - name: Publish Korean pages while preserving existing wiki content
         env:
           GH_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
           export GIT_TERMINAL_PROMPT=0
           export GIT_ASKPASS="$RUNNER_TEMP/wiki-askpass.sh"
           trap 'rm -f "$GIT_ASKPASS"' EXIT
@@ -31,18 +49,4 @@ jobs:
           esac
           SH
           chmod 700 "$GIT_ASKPASS"
-          url="https://github.com/${GITHUB_REPOSITORY}.wiki.git"
-          git ls-remote --symref "$url" HEAD
-          git clone --depth=1 "$url" "$RUNNER_TEMP/browserdock-wiki"
-          cd "$RUNNER_TEMP/browserdock-wiki"
-          echo 'WIKI_FILE_LIST_BEGIN'
-          git ls-tree -r --name-only HEAD
-          echo 'WIKI_FILE_LIST_END'
-          for file in Home.md _Sidebar.md; do
-            if [ -f "$file" ]; then
-              echo "PAGE_BEGIN $file"
-              cat "$file"
-              echo
-              echo "PAGE_END $file"
-            fi
-          done
+          python3 scripts/publish-wiki-ko.py --publish
