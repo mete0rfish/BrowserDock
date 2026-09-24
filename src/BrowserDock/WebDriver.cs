@@ -44,6 +44,13 @@ internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : IComm
 }
 internal sealed class Attachment(OwnedProcess process, int port, DetachAwareCommandExecutor executor, RemoteWebDriver driver)
 {
+    internal static ChromeOptions CreateOptions(Uri cdp) => new()
+    {
+        DebuggerAddress = $"127.0.0.1:{cdp.Port}",
+        // This browser is externally owned. The launch-only detach capability
+        // is rejected by ChromeDriver in debuggerAddress mode.
+        PageLoadStrategy = PageLoadStrategy.None
+    };
     public OwnedProcess Process { get; } = process;
     public int Port { get; } = port;
     public DetachAwareCommandExecutor Executor { get; } = executor;
@@ -93,7 +100,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                         try
                         {
                             using var result = JsonDocument.Parse(await RuntimeCompatibility.HttpStringAsync(http, $"http://127.0.0.1:{port}/status", readiness.Token).ConfigureAwait(false));
-                            if (result.RootElement.GetProperty("value").GetProperty("ready").GetBoolean() && process.Alive && BrowserHosting.OwnsLoopbackListener(process.Id, port)) break;
+                            if (result.RootElement.GetProperty("value").GetProperty("ready").GetBoolean() && process.Alive && BrowserHosting.OwnsDriverListener(process.Id, port)) break;
                         }
                         catch (Exception e) when (e is HttpRequestException or JsonException or KeyNotFoundException) { }
                         await Task.Delay(50, readiness.Token).ConfigureAwait(false);
@@ -101,7 +108,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                 }
                 creatingSession = true;
                 executor = new DetachAwareCommandExecutor(new LoopbackExecutor(new Uri($"http://127.0.0.1:{port}"), timeouts.Command > timeouts.WebDriverSessionCreate ? timeouts.Command : timeouts.WebDriverSessionCreate));
-                var options = new ChromeOptions { DebuggerAddress = $"127.0.0.1:{cdp.Port}", LeaveBrowserRunning = true, PageLoadStrategy = PageLoadStrategy.None };
+                var options = CreateOptions(cdp);
                 var localExecutor = executor;
                 create = Task.Run(() => new RemoteWebDriver(localExecutor, options.ToCapabilities()));
                 using var deadline = new Deadline(timeouts.WebDriverSessionCreate, token);

@@ -136,7 +136,7 @@ browser 수준의 `Browser.*`, `Target.*` 명령은 browser connection으로 보
 `WebDriverAttachmentFactory`는 다음 입력으로 새 attachment를 만든다.
 
 - 현재 Chrome debugger address
-- `detach=true`/`LeaveBrowserRunning`
+- 외부 Chrome 연결에 맞게 `detach` capability 생략
 - 현재 session creation deadline
 - 소유 ChromeDriver PID와 service endpoint
 
@@ -237,9 +237,9 @@ generation만 사용하면 disconnect 후 reconnect가 아직 성공하지 않�
 2. 필요하면 검증된 patch cache 사본을 준비한다.
 3. Chrome을 시작하고 `DevToolsActivePort`를 찾는다.
 4. browser CDP WebSocket에 연결하고 protocol/browser version을 기록한다.
-5. target discovery/auto-attach를 활성화하고 controlled page session을 확정한다.
+5. target discovery를 활성화하고 `CdpConnect` 제한 시간 안에서 Chrome의 첫 page target을 기다린다. 초기 목록이 비어 있어도 대체 탭을 생성하지 않는다. 페이지가 하나면 controlled page session을 확정하며, 실제 여러 페이지가 있으면 기존의 명시적 선택 규칙을 적용한다.
 6. ChromeDriver를 별도 프로세스로 시작하고 `/status` readiness를 확인한다.
-7. debugger address와 `detach=true`로 새 W3C session을 만든다.
+7. debugger address로 새 W3C session을 만든다. 외부 Chrome 연결에서 거부되는 `detach` capability는 보내지 않는다.
 8. generation과 epoch를 commit하고 `WebDriverAttached`를 반환한다.
 
 각 단계 실패 시 이미 소유한 자원만 역순 정리한다.
@@ -491,7 +491,7 @@ process와 socket을 흉내 낸 단위 테스트는 상태 전이와 cleanup 순
 
 다음은 구조의 타당성을 좌우하므로 실제 Windows fixture에서 먼저 확인한다.
 
-1. `detach=true`, Quit 차단과 ChromeDriver PID 종료 조합이 Chrome을 확실히 유지하는가?
+1. `detach` 생략, Quit 차단과 ChromeDriver PID 종료 조합이 Chrome을 확실히 유지하는가?
 2. `DetachAwareCommandExecutor`의 sync/async dispose가 죽은 endpoint에서 hard cap 안에 끝나는가?
 3. 독립 CDP client와 ChromeDriver의 동시 연결이 target event와 navigation을 방해하지 않는가?
 4. 재연결한 WebDriver와 controlled CDP target의 대응을 결정적으로 확정할 수 있는가?

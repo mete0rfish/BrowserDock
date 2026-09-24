@@ -46,7 +46,8 @@ public sealed class AttachmentFailureTests
             try { using var owned = Process.GetProcessById(pid); Assert.That(owned.HasExited, Is.True); }
             catch (ArgumentException) { }
             using var client = new TcpClient();
-            Assert.ThrowsAsync<SocketException>(async () => await client.ConnectAsync("127.0.0.1", json.RootElement.GetProperty("port").GetInt32()).WaitAsync(TimeSpan.FromSeconds(1)));
+            var refused = Assert.ThrowsAsync<SocketException>(async () => await client.ConnectAsync("127.0.0.1", json.RootElement.GetProperty("port").GetInt32()).WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.That(refused!.SocketErrorCode, Is.EqualTo(SocketError.ConnectionRefused));
         }
         finally
         {

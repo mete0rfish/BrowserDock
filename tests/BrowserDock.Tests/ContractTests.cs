@@ -30,7 +30,7 @@ public sealed class ContractTests
             else await context.Response.WriteAsJsonAsync(new { value = "http://localhost/fixture" });
         });
         var executor = new DetachAwareCommandExecutor(new LoopbackExecutor(server.Url, TimeSpan.FromSeconds(3)));
-        var options = new ChromeOptions { DebuggerAddress = "127.0.0.1:12345", LeaveBrowserRunning = true };
+        var options = Attachment.CreateOptions(new Uri("ws://127.0.0.1:12345/devtools/browser/fixture"));
         var driver = await Task.Run(() => new RemoteWebDriver(executor, options.ToCapabilities()));
         Assert.That(driver.Url, Is.EqualTo("http://localhost/fixture"));
         var creation = requests.First();
@@ -38,7 +38,7 @@ public sealed class ContractTests
         var capabilities = json.RootElement.GetProperty("capabilities");
         var chrome = capabilities.TryGetProperty("alwaysMatch", out var always) && always.TryGetProperty("goog:chromeOptions", out var chromeOptions)
             ? chromeOptions : capabilities.GetProperty("firstMatch").EnumerateArray().Single(x => x.TryGetProperty("goog:chromeOptions", out _)).GetProperty("goog:chromeOptions");
-        Assert.Multiple(() => { Assert.That(chrome.GetProperty("debuggerAddress").GetString(), Is.EqualTo("127.0.0.1:12345")); Assert.That(chrome.GetProperty("detach").GetBoolean(), Is.True); });
+        Assert.Multiple(() => { Assert.That(chrome.GetProperty("debuggerAddress").GetString(), Is.EqualTo("127.0.0.1:12345")); Assert.That(chrome.TryGetProperty("detach", out _), Is.False); });
         var count = requests.Count;
         executor.Detach();
         Assert.Throws<StaleAttachmentException>(() => _ = driver.Url);
