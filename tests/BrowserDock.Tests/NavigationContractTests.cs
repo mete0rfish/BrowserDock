@@ -9,6 +9,48 @@ namespace BrowserDock.Tests;
 [TestFixture]
 public sealed class NavigationContractTests
 {
+    [TestCase(1), TestCase(3)]
+    public async Task InitializationWaitsForInitialPageWithoutCreatingAnother(int emptySnapshots)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        fixture.EmptySnapshotsRemaining = emptySnapshots;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        Assert.That(fixture.CreatedTargets, Is.Zero, "The initial Chrome page must not race a fallback tab.");
+        Assert.That(fixture.DiscoveryRequests, Is.EqualTo(emptySnapshots + 1));
+        Assert.That(controller.Snapshot(), Has.Count.EqualTo(1));
+        Assert.That(controller.Resolve().Id, Is.EqualTo("page"));
+        Assert.That(controller.ExplicitSelection, Is.False);
+    }
+    [Test]
+    public async Task InitializationWaitingForInitialPageHonorsCancellation()
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        fixture.EmptySnapshotsRemaining = int.MaxValue;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var initializing = controller.InitializeAsync(deadline.Token);
+        await fixture.EmptySnapshotRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        deadline.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await initializing.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.That(fixture.CreatedTargets, Is.Zero);
+        Assert.That(controller.Controlled, Is.Null);
+        Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+    }
+    [Test]
+    public async Task InitializationDoesNotChooseAmongMultipleInitialPages()
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        fixture.MultipleInitialPages = true;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        Assert.That(controller.Snapshot(), Has.Count.EqualTo(2));
+        Assert.That(controller.Controlled, Is.Null);
+        Assert.Throws<AmbiguousTargetException>(() => controller.Resolve());
+        Assert.That(fixture.CreatedTargets, Is.Zero);
+    }
     [TestCase(NavigationWaitUntil.Commit), TestCase(NavigationWaitUntil.DOMContentLoaded), TestCase(NavigationWaitUntil.Load), TestCase(NavigationWaitUntil.NetworkIdle)]
     public async Task PageNavigationUsesTargetSessionAndWaitsForItsLoader(NavigationWaitUntil until)
     {
@@ -132,6 +174,11 @@ public sealed class NavigationContractTests
         public Uri Endpoint => new UriBuilder(server.Url) { Scheme = "ws", Path = "/devtools/browser/fixture" }.Uri;
         public int PageCallsWithoutSession;
         public int ScriptRegistrations;
+        public int EmptySnapshotsRemaining;
+        public int DiscoveryRequests;
+        public int CreatedTargets;
+        public bool MultipleInitialPages;
+        public TaskCompletionSource<bool> EmptySnapshotRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public System.Collections.Concurrent.ConcurrentBag<string> Sources = new();
         public bool OnlyOldLoader;
         public string? Scenario;
@@ -164,7 +211,8 @@ public sealed class NavigationContractTests
                     object result = method switch
                     {
                         "Browser.getVersion" => new { product = "Chrome/150.0.1.0", protocolVersion = "1.3" },
-                        "Target.getTargets" => new { targetInfos = new[] { new { targetId = "page", type = "page", url = "about:blank", title = "fixture" } } },
+                        "Target.getTargets" => Targets(),
+                        "Target.createTarget" => CreateTarget(),
                         "Target.attachToTarget" => new { sessionId = "session-page" },
                         "Page.getFrameTree" => new { frameTree = new { frame = new { id = "main", loaderId = "old-loader", url = "about:blank" } } },
                         "Page.navigate" => new { frameId = "main", loaderId = "new-loader" },
@@ -200,5 +248,29 @@ public sealed class NavigationContractTests
             catch (Exception e) when (e is WebSocketException or OperationCanceledException) { }
         }
         public ValueTask DisposeAsync() => server.DisposeAsync();
+        private object Targets()
+        {
+            Interlocked.Increment(ref DiscoveryRequests);
+            var infos = new List<object>();
+            if (EmptySnapshotsRemaining > 0)
+            {
+                EmptySnapshotsRemaining--;
+                // Non-page targets must not satisfy the initial page wait.
+                infos.Add(new { targetId = "worker", type = "service_worker", url = "http://fixture/worker.js", title = "worker" });
+                EmptySnapshotRequested.TrySetResult(true);
+            }
+            else
+            {
+                infos.Add(new { targetId = "page", type = "page", url = "about:blank", title = "fixture" });
+                if (MultipleInitialPages) infos.Add(new { targetId = "other-page", type = "page", url = "about:blank", title = "other" });
+            }
+            if (CreatedTargets > 0) infos.Add(new { targetId = "fallback", type = "page", url = "about:blank", title = "fallback" });
+            return new { targetInfos = infos };
+        }
+        private object CreateTarget()
+        {
+            Interlocked.Increment(ref CreatedTargets);
+            return new { targetId = "fallback" };
+        }
     }
 }

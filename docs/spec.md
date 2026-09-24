@@ -191,7 +191,7 @@ ChromeDriver의 `/session` 생성 경로는 생성자 안에서 동기적으로 
 
 `debuggerAddress` attach는 공식 capability이지만 일반 ChromeDriver launch와 동등하지 않다. automation extension이 없기 때문에 일부 명령은 “operation not supported when using remote debugging”으로 실패한다. 이 오류는 재시도해 해결되는 transient 오류가 아니며 `UnsupportedAttachedCommandException`으로 분류해야 한다.
 
-ChromeDriver의 `detach` capability는 driver 종료와 Chrome 종료의 관계를 제어한다. [ChromeOptions capability 표](https://developer.chrome.com/docs/chromedriver/capabilities) BrowserDock은 defense-in-depth로 attachment마다 `detach=true`를 명시하지만, 외부 실행 Chrome attach에서 모든 종료 경로에 대해 Chrome 보존을 보장한다고 정적으로 단정하지 않는다. Chrome 프로세스 별도 소유, Quit 차단 executor와 AC-01 실행 matrix를 함께 사용한다.
+ChromeDriver의 `detach` capability는 driver가 실행한 Chrome의 종료 동작을 제어한다. [ChromeOptions capability 표](https://developer.chrome.com/docs/chromedriver/capabilities) 외부 실행 Chrome에 연결할 때는 이 capability가 거부될 수 있으므로 BrowserDock은 생략한다. Chrome 프로세스 별도 소유, Quit 차단 executor와 ChromeDriver PID 종료로 브라우저를 보존하며 AC-01 실행 matrix로 검증한다.
 
 ### 6.2 CDP 제약
 
@@ -409,7 +409,7 @@ API 규칙:
 ### 10.3 WebDriver attachment
 
 - **FR-020** ChromeDriver는 Chrome과 별도 소유 프로세스로 `--port=N`에 시작하고 stdout/stderr를 비동기 소비한다. loopback `GET /status`의 `ready=true`와 같은 PID 생존을 확인한 뒤 session을 만든다. port/bind 실패는 제한 횟수만 새 후보 port로 재시도하고 실패한 정확한 PID를 종료한다.
-- **FR-021** 새 attachment는 현재 DevTools host/port가 들어간 `ChromeOptions.DebuggerAddress`와 `LeaveBrowserRunning`/`detach=true`로 새 W3C session을 만든다.
+- **FR-021** 새 attachment는 현재 DevTools host/port가 들어간 `ChromeOptions.DebuggerAddress`로 새 W3C session을 만든다. 외부 Chrome 연결에서 거부될 수 있는 `LeaveBrowserRunning`/`detach=true`는 설정하지 않는다.
 - **FR-022** attachment 성공 때 session id, driver PID, service port, generation과 attachment epoch를 기록한다.
 - **FR-023** remote-debugging attach에서 공식적으로 지원되지 않는 명령은 typed 오류와 capability 진단을 반환한다.
 - **FR-024** Selenium private field/method reflection은 CI 정적 검사에서 금지한다.
@@ -519,7 +519,7 @@ sequenceDiagram
     Uc->>CDP: connect browser websocket
     CDP->>Chrome: discover/auto-attach targets; obtain sessionId
     Uc->>Driver: start --port=N; poll GET /status ready=true
-    Uc->>WD: new session(debuggerAddress, detach=true)
+    Uc->>WD: new session(debuggerAddress)
     WD->>Driver: POST /session
     Driver->>Chrome: attach to existing browser
     Uc-->>App: WebDriverAttached, generation=1, epoch=1
@@ -545,7 +545,7 @@ sequenceDiagram
     Uc->>CDP: Page.navigate(url, target sessionId)
     CDP->>Chrome: wait requested lifecycle milestone
     Uc->>Driver: start new process
-    Uc->>Driver: create new session(debuggerAddress, detach=true)
+    Uc->>Driver: create new session(debuggerAddress)
     Uc->>CDP: re-enumerate/attach/activate controlled target
     Uc->>Uc: generation++; commit new epoch; release gate
     Uc-->>App: NavigationResult(new generation/epoch)
@@ -770,7 +770,7 @@ MVP에서 target 복구가 모호하면 임의 탭을 선택하지 않고 실패
 
 - library-owned headed Chrome과 WebDriver를 시작한다.
 - browser PID/create-time, DevTools endpoint, controlled target를 기록한다.
-- `detach` 기본값/`true`와 “DELETE session 전송”/“driver PID 직접 종료” 조합을 test matrix로 실행한다. 제품 경로는 `detach=true` + Quit 차단 + driver PID 종료다.
+- `detach` 생략/`true`와 “DELETE session 전송”/“driver PID 직접 종료” 조합을 test matrix로 실행한다. `detach=true`가 명시적으로 거부되면 그 결과와 Chrome 생존을 기록한다. 제품 경로는 `detach` 생략 + Quit 차단 + driver PID 종료다.
 - `DisconnectWebDriverAsync()` 후 ChromeDriver PID는 5초 안에 종료되어야 한다.
 - 원래 Chrome PID/create-time은 같고 살아 있어야 하며 CDP `Browser.getVersion`과 target query가 성공해야 한다.
 - `CdpOnly` 상태에서 30초 이상 유지 후에도 조건이 같아야 한다.

@@ -131,8 +131,16 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         await BrowserAsync("Browser.setDownloadBehavior", new { behavior = "default", eventsEnabled = true }, token).ConfigureAwait(false);
         await BrowserAsync("Target.setDiscoverTargets", new { discover = true }, token).ConfigureAwait(false);
         await RefreshAsync(token).ConfigureAwait(false);
-        if (targets.IsEmpty) { var created = await BrowserAsync("Target.createTarget", new { url = "about:blank" }, token).ConfigureAwait(false); await RefreshAsync(token).ConfigureAwait(false); SelectById(created.GetProperty("targetId").GetString()!, false); }
-        else if (Controlled is null && targets.Count == 1) SelectById(targets.Values.Single().Id, false);
+        // Chrome is launched with about:blank, but its first page may appear
+        // after the DevTools endpoint. Creating a fallback here races that page.
+        // The caller's CDP deadline bounds discovery; recovery keeps its target.
+        while (Controlled is null && targets.IsEmpty)
+        {
+            await Task.Delay(50, token).ConfigureAwait(false);
+            await RefreshAsync(token).ConfigureAwait(false);
+        }
+        lock (registrySync)
+            if (Controlled is null && targets.Count == 1) SelectById(targets.Values.Single().Id, false);
         if (Controlled is not null) await SessionAsync(Controlled.Value, token).ConfigureAwait(false);
     }
     private async Task ValidateProtocolAsync(CancellationToken token)

@@ -236,14 +236,26 @@ public sealed partial class WindowsTests
             }
             var chrome = new ChromeOptions { DebuggerAddress = $"127.0.0.1:{snapshot.Endpoint!.Port}" };
             if (detach) chrome.LeaveBrowserRunning = true;
-            using var remote = await Task.Run(() => new RemoteWebDriver(executor, chrome.ToCapabilities()), deadline.Token);
+            RemoteWebDriver remote;
+            try { remote = await Task.Run(() => new RemoteWebDriver(executor, chrome.ToCapabilities()), deadline.Token); }
+            catch (OpenQA.Selenium.WebDriverArgumentException e) when (detach && e.Message.Contains("unrecognized chrome option: detach", StringComparison.Ordinal))
+            {
+                // Comparison-only option: modern ChromeDriver rejects it for
+                // an externally launched browser. The product omits detach.
+                TestContext.Out.WriteLine(JsonSerializer.Serialize(new { detach, sendDelete, rejected = "detach" }));
+                Assert.That(IsAlive(browser.Health.ChromePid!.Value), Is.True);
+                await browser.ExecuteCdpAsync("Browser.getVersion");
+                Assert.That(IsAlive(unrelated.Health.ChromePid!.Value), Is.True);
+                return;
+            }
+            using var remoteLifetime = remote;
             if (sendDelete) using (var response = await http.DeleteAsync($"http://127.0.0.1:{port}/session/{remote.SessionId}", deadline.Token)) response.EnsureSuccessStatusCode();
             else { driverProcess.Terminate(); await driverProcess.WaitAsync(deadline.Token); }
             var survived = IsAlive(browser.Health.ChromePid!.Value);
             var cdpAlive = false;
             if (survived) { try { await browser.ExecuteCdpAsync("Browser.getVersion"); cdpAlive = true; } catch (BrowserDockException) { } }
             TestContext.Out.WriteLine(JsonSerializer.Serialize(new { detach, sendDelete, survived, cdpAlive }));
-            if (detach && !sendDelete) Assert.That(survived && cdpAlive, Is.True, "Product combination must preserve Chrome and CDP.");
+            if (!sendDelete) Assert.That(survived && cdpAlive, Is.True, "Terminating only the driver must preserve Chrome and CDP.");
             Assert.That(IsAlive(unrelated.Health.ChromePid!.Value), Is.True);
         }
         finally { executor.Detach(); driverProcess.Terminate(); await driverProcess.WaitAsync(deadline.Token); }
@@ -305,7 +317,8 @@ public sealed partial class WindowsTests
     private static async Task AssertPortClosed(int port)
     {
         using var socket = new TcpClient();
-        try { await socket.ConnectAsync("127.0.0.1", port).WaitAsync(TimeSpan.FromSeconds(1)); Assert.Fail($"Owned port {port} remains open."); }
-        catch (SocketException) { }
+        // Windows can retry a refused connect for longer than one second.
+        try { await socket.ConnectAsync("127.0.0.1", port).WaitAsync(TimeSpan.FromSeconds(5)); Assert.Fail($"Owned port {port} remains open."); }
+        catch (SocketException e) when (e.SocketErrorCode == SocketError.ConnectionRefused) { }
     }
 }

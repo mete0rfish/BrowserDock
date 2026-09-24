@@ -180,7 +180,7 @@ public sealed class WindowsLegacyTests
     private static async Task AssertPortClosed(int port)
     {
         using var client = new TcpClient();
-        try { await TaskCompatibility.WaitAsync(client.ConnectAsync("127.0.0.1", port), TimeSpan.FromSeconds(1)); Assert.Fail("Owned port remains open: " + port); }
-        catch (SocketException) { }
+        try { await TaskCompatibility.WaitAsync(client.ConnectAsync("127.0.0.1", port), TimeSpan.FromSeconds(5)); Assert.Fail("Owned port remains open: " + port); }
+        catch (SocketException e) when (e.SocketErrorCode == SocketError.ConnectionRefused) { }
     }
 }
