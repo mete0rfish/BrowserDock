@@ -2,7 +2,7 @@
 
 > Keep the browser. Swap the driver.
 
-[한국어](README.ko.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Usage guide](docs/usage.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 **Experimental.** BrowserDock manages a separately launched Chrome process, an independent CDP connection, and replaceable WebDriver sessions on Windows. Its lifecycle design is inspired by SeleniumBase UC Mode. This independent project is not an official SeleniumBase .NET binding.
 

@@ -7,7 +7,7 @@ No public repository or NuGet package has been created by this change.
 ## Complete before public source release
 
 1. Preserve the confirmed MIT license and copyright holder/author `mete0rfish` in
-   `LICENSE`, `build/Package.props`, both READMEs, CONTRIBUTING and THIRD-PARTY-NOTICES.
+   `LICENSE`, `build/Package.props`, README and the usage guide, CONTRIBUTING and THIRD-PARTY-NOTICES.
 2. Keep the owner-confirmed private reporting email `sungwonyoon326@gmail.com` current
    in SECURITY and CODE_OF_CONDUCT. Email is the documented reporting route; GitHub
    private vulnerability reporting has not been verified as enabled.
@@ -58,7 +58,7 @@ public artifacts contain no local sensitive content or unwanted embedded sources
 
 ## Validate and publish the same candidate
 
-1. Update CHANGELOG, support.md and both READMEs to describe the actual tested matrix.
+1. Update CHANGELOG, support.md and README and the usage guide to describe the actual tested matrix.
    Bump only `build/Version.props` and any user-facing installation examples.
 2. Commit the final source and record its SHA. Run hosted Common contracts for that commit.
 3. Run Windows 11 browser acceptance on that exact commit, with `stress=true` and compatible

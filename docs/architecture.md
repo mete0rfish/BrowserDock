@@ -1,30 +1,30 @@
-# BrowserDock 아키텍처
+# BrowserDock architecture
 
-- 문서 상태: 구현 전 아키텍처 기준선
-- 기준 명세: [spec.md](spec.md)
-- 초기 배포 대상: Windows 11 x64, headed Chrome, 지원 중인 .NET LTS
-- 범위: 구조와 책임의 기준선이다. 구현 및 검증 상태는 [implementation.md](implementation.md)에 기록한다.
+- Status: pre-implementation architecture baseline
+- Governing specification: [spec.md](spec.md)
+- Initial platform: Windows 11 x64, headed Chrome, supported .NET LTS
+- Scope: structural and responsibility baseline. Actual implementation and verification are recorded in [implementation.md](implementation.md).
 
-## 1. 문서 목적
+## 1. Purpose
 
-이 문서는 BrowserDock을 어떤 컴포넌트로 나누고, 각 컴포넌트가 어떤 상태와 자원을 소유하며, 시작·이동·연결 해제·재연결·종료가 어떻게 협력하는지 정의한다.
+Define the components, their state/resource ownership, and their cooperation during startup, navigation, disconnect, reconnect, and shutdown.
 
-[spec.md](spec.md)는 외부에서 관찰할 수 있는 요구사항과 수용 기준의 기준 문서다. 이 문서는 그 요구사항을 구현 가능한 구조로 옮긴다. 두 문서가 충돌하면 임의로 구현하지 않고 두 문서를 같은 변경에서 함께 수정한다.
+[spec.md](spec.md) governs externally observable requirements and acceptance criteria. This document maps those requirements to an implementable structure. Resolve conflicts by updating both documents in the same change rather than choosing an undocumented interpretation.
 
-## 2. 아키텍처 요약
+## 2. Overview
 
-BrowserDock은 Chrome, CDP, WebDriver의 수명을 분리한 하이브리드 구조다.
+BrowserDock separates Chrome, CDP, and WebDriver lifetimes in a hybrid architecture.
 
-- **Chrome**은 실제 브라우저 상태와 프로필을 가진 장수명 프로세스다.
-- **CDP control plane**은 Chrome 및 page target을 관찰·선택·이동·복구한다.
-- **WebDriver attachment**는 core W3C 명령을 제공하는 교체 가능한 단기 연결이다.
-- **Browser**는 이 세 계층의 소유권과 상태 전이를 직렬화하는 aggregate root다.
+- **Chrome** is the long-lived process holding browser state and the profile.
+- The **CDP control plane** observes, selects, navigates, and recovers browser/page targets.
+- A **WebDriver attachment** is a replaceable, short-lived connection providing core W3C commands.
+- **Browser** is the aggregate root serializing ownership and state transitions across these layers.
 
-disconnect는 브라우저 종료가 아니다. ChromeDriver와 WebDriver session만 폐기하고 Chrome과 CDP를 유지한다. reconnect는 기존 Selenium 객체를 되살리지 않고 새 ChromeDriver 프로세스와 새 WebDriver session을 만든다.
+Disconnecting does not terminate the browser. It discards ChromeDriver and the WebDriver session while preserving Chrome and CDP. Reconnection creates a new driver process and session rather than reviving Selenium objects.
 
 ```mermaid
 flowchart LR
-    App[사용자 애플리케이션] --> API[Browser / guarded API]
+    App[User application] --> API[Browser / guarded API]
     API --> LC[Lifecycle Coordinator]
     LC --> Host[Chrome Process Host]
     LC --> CP[CDP Control Plane]
@@ -37,132 +37,132 @@ flowchart LR
     LC --> Diag[Diagnostics]
 ```
 
-## 3. 설계 원칙과 불변조건
+## 3. Principles and invariants
 
-다음 규칙은 구현 편의를 위해 완화할 수 없는 시스템 불변조건이다.
+Implementation convenience must not weaken these invariants.
 
-1. Chrome, ChromeDriver, WebDriver session은 서로 다른 수명 단위다.
-2. ChromeDriver disconnect는 소유한 ChromeDriver PID만 종료한다.
-3. reconnect는 항상 새 process, client, executor, W3C SessionId를 만든다.
-4. disconnect를 시작할 때 `AttachmentEpoch`를 먼저 변경한다.
-5. 모든 WebDriver 명령은 `WebDriverAttached` 상태와 현재 epoch를 로컬에서 확인한다.
-6. raw `IWebDriver`와 `IWebElement`는 공개 경계를 통과하지 않는다.
-7. page/runtime CDP 명령은 명시적인 target session에 전송한다.
-8. target이 모호하면 최근 탭이나 배열 순서로 추측하지 않고 실패한다.
-9. ChromeDriver 바이너리 원본은 수정하지 않는다. 패치는 검증된 cache 사본에만 적용한다.
-10. 프로세스 이름이나 미확인 PID로 종료하지 않는다.
-11. 사용자 callback은 transport read loop나 lifecycle lock 안에서 실행하지 않는다.
-12. cancellation 이후에도 소유 자원 정리는 제한 시간 안에서 계속한다.
-13. Selenium private API 또는 reflection에 의존하지 않는다.
-14. 특정 사이트의 탐지 회피 결과는 아키텍처 계약이 아니다.
+1. Chrome, ChromeDriver, and WebDriver sessions have distinct lifetimes.
+2. Disconnect terminates only the owned ChromeDriver PID.
+3. Reconnect always creates a new process, client, executor, and W3C SessionId.
+4. Rotate `AttachmentEpoch` before starting disconnection.
+5. Every WebDriver command checks `WebDriverAttached` and the current epoch locally.
+6. Raw `IWebDriver`/`IWebElement` never cross the public boundary.
+7. Page/runtime CDP commands use an explicit target session.
+8. Ambiguous targets fail rather than relying on the latest tab or array order.
+9. Original driver binaries are immutable; patch only verified cache copies.
+10. Never terminate by process name or unverified PID.
+11. User callbacks do not run in transport read loops or under lifecycle locks.
+12. Owned-resource cleanup continues within a bounded deadline after cancellation.
+13. Do not depend on private Selenium APIs or reflection.
+14. Detection evasion on a particular site is not an architecture contract.
 
-## 4. 시스템 경계
+## 4. System boundaries
 
-### 4.1 시스템이 소유하는 것
+### 4.1 Owned resources
 
-MVP에서 BrowserDock은 다음 자원을 생성하고 추적한다.
+The MVP creates and tracks:
 
-| 자원 | 소유권 | 식별 정보 | 최종 정리 |
+| Resource | Owner | Identity | Final cleanup |
 |---|---|---|---|
-| Chrome process tree | library | PID, create time, canonical executable path | 정상 종료 후 필요 시 해당 tree만 강제 종료 |
-| ChromeDriver process | attachment | PID, create time, service port | disconnect마다 종료 |
-| temporary profile | library | canonical path, nonce marker | Chrome 종료 확인 후 삭제 |
-| caller-specified profile | caller | canonical path, exclusive lock | 삭제하지 않고 lock만 해제 |
-| CDP sockets와 read loop | library | endpoint, connection id | bounded drain 후 dispose |
-| patch cache result | library persistent | source/result hash, recipe id | 실행 중 보존; 별도 prune 정책 |
+| Chrome process tree | Library | PID, creation time, canonical executable path | Graceful stop, then force only that tree if needed |
+| ChromeDriver process | Attachment | PID, creation time, service port | Terminate on every disconnect |
+| Temporary profile | Library | Canonical path, nonce marker | Delete after confirmed Chrome exit |
+| Caller-specified profile | Caller | Canonical path, exclusive lock | Release lock; never delete |
+| CDP sockets/read loop | Library | Endpoint, connection ID | Bounded drain, then dispose |
+| Patch cache | Persistent library data | Source/result hashes, recipe ID | Preserve while running; separate pruning policy |
 
-호출자가 이미 실행한 외부 Chrome attach는 MVP 경계 밖이다. 기본 Chrome profile도 사용하지 않는다.
+Attaching to caller-launched Chrome is outside the MVP. Default Chrome profiles are not used.
 
-### 4.2 외부 의존성
+### 4.2 External dependencies
 
-- Chrome 또는 Chrome for Testing executable
-- 호출자가 제공하는 호환 ChromeDriver executable
-- Selenium.WebDriver의 공개 API
-- Chrome DevTools Protocol의 최소 `Browser`, `Target`, `Page`, `Runtime` 기능
-- .NET BCL과 `Microsoft.Extensions.Logging` 추상화
-- Windows process, file locking 및 process-tree 관리 기능
+- Chrome or Chrome for Testing executable.
+- Caller-supplied compatible ChromeDriver executable.
+- Public Selenium.WebDriver APIs.
+- Minimum CDP `Browser`, `Target`, `Page`, and `Runtime` capabilities.
+- .NET BCL and `Microsoft.Extensions.Logging` abstractions.
+- Windows process, file-locking, and process-tree facilities.
 
-Selenium typed DevTools API, Selenium Manager 내부 경로, Selenium private service API는 의존하지 않는다.
+Do not depend on typed Selenium DevTools APIs, internal Selenium Manager paths, or private service APIs.
 
-## 5. 논리 컴포넌트
+## 5. Logical components
 
 ### 5.1 Public API
 
-`Browser`가 한 브라우저 인스턴스의 유일한 lifecycle 진입점이다. 상태 조회, navigation, target 선택, WebDriver lease, CDP 고급 명령, 종료를 제공한다.
+`Browser` is the only lifecycle entry point for an instance: state, navigation, target selection, WebDriver leases, advanced CDP, and shutdown.
 
-`WebDriverLease`는 raw Selenium 객체가 아니라 `IBrowserCommands` guarded facade를 제공한다. `ElementRef` 역시 raw element가 아니라 locator와 수명 정보를 가진 라이브러리 객체다.
+`WebDriverLease` exposes the guarded `IBrowserCommands` facade, not raw Selenium objects. `ElementRef` holds a locator and lifetime metadata instead of exposing a raw element.
 
-공개 모델은 Selenium 형식을 최대한 노출하지 않는다. 이 경계 덕분에 Selenium package 업데이트와 attachment 교체가 애플리케이션 상태를 직접 오염시키지 않는다.
+Public models minimize Selenium type exposure so package updates and attachment replacement do not directly contaminate application state.
 
 ### 5.2 Lifecycle Coordinator
 
-`Browser` 내부의 조정자이며 다음을 책임진다.
+The coordinator inside `Browser` owns:
 
-- 상태 전이와 lifecycle operation 직렬화
-- 전체 deadline을 단계별 timeout에 배분
-- 시작 중 부분 생성된 자원의 rollback
-- disconnect 시 command admission 차단과 in-flight drain
-- Chrome/CDP 건강성에 따른 복구 수준 선택
-- 최종 종료의 역순 정리
+- Serialized lifecycle transitions and operations.
+- Allocation of the overall deadline to per-stage timeouts.
+- Rollback of partially created startup resources.
+- Command-admission closure and in-flight draining on disconnect.
+- Recovery selection based on Chrome/CDP health.
+- Reverse-order final cleanup.
 
-조정자는 구체적인 process, socket, Selenium 구현을 직접 다루지 않고 하위 port를 호출한다. 하위 컴포넌트는 독자적으로 전역 상태를 변경하지 않는다.
+It calls lower-level ports instead of directly handling concrete processes, sockets, or Selenium implementations. Components do not independently mutate global state.
 
 ### 5.3 Hosting
 
-`ProfileManager`는 프로필 경로 검증, ownership marker, caller-owned profile lock과 안전한 cleanup을 담당한다.
+`ProfileManager` validates paths, ownership markers, caller-profile locks, and safe cleanup.
 
-`ChromeProcessHost`는 별도 user-data directory와 `--remote-debugging-port=0`으로 Chrome을 시작하고 정확한 PID tree를 추적한다. `DevToolsEndpointDiscovery`는 `DevToolsActivePort`와 `/json/version`을 함께 검증한 뒤 endpoint를 확정한다.
+`ChromeProcessHost` launches Chrome with a separate user-data directory and `--remote-debugging-port=0`, tracking the exact PID tree. `DevToolsEndpointDiscovery` validates both `DevToolsActivePort` and `/json/version` before accepting an endpoint.
 
-`ProcessTreeTracker`는 PID뿐 아니라 create time과 executable path를 기록하여 PID 재사용이나 다른 세션 오종료를 방지한다.
+`ProcessTreeTracker` records creation time and executable path as well as PID to prevent PID-reuse mistakes or terminating another session.
 
 ### 5.4 CDP Control Plane
 
-CDP는 두 수준으로 나뉜다.
+CDP has browser and target levels:
 
-- `CdpConnection`: browser WebSocket, JSON-RPC id, read/write loop, reconnect와 protocol 협상을 관리한다.
-- `TargetRegistry`: target 생성·삭제·detach event를 처리하고 library의 `TargetKey`를 CDP `targetId`에 매핑한다.
-- `CdpTargetSession`: page target에 attach한 `sessionId`를 소유한다.
-- `PageNavigator`: target session을 지정해 navigation을 실행하고 완료 조건을 판정한다.
-- `RuntimeScriptRegistry`: 등록할 script의 논리 id와 적용된 target/session을 추적한다.
+- `CdpConnection`: browser WebSocket, JSON-RPC IDs, read/write loops, reconnect, protocol negotiation.
+- `TargetRegistry`: target creation/destruction/detach events and `TargetKey` to `targetId` mapping.
+- `CdpTargetSession`: ownership of the attached page's `sessionId`.
+- `PageNavigator`: target-session navigation and completion conditions.
+- `RuntimeScriptRegistry`: logical script IDs and their registered target/sessions.
 
-browser 수준의 `Browser.*`, `Target.*` 명령은 browser connection으로 보낸다. `Page.*`, `Runtime.*` 명령은 반드시 `CdpTargetSession.sessionId`와 함께 보낸다. CDP transport가 복구되면 target을 다시 열거하고 controlled target에 재attach한 뒤 runtime script를 재등록한다.
+Send `Browser.*` and `Target.*` through the browser connection. Send `Page.*` and `Runtime.*` with `CdpTargetSession.sessionId`. After transport recovery, enumerate targets, reattach the controlled target, and register scripts again.
 
-`TargetKey`는 호출자가 사용할 수 있는 불투명 식별자다. 내부 CDP `targetId`가 사라지면 해당 key는 terminal stale 상태가 되며 다른 탭에 재할당하지 않는다.
+`TargetKey` is opaque to callers. When its CDP target disappears, it becomes terminally stale and must never be reassigned to another tab.
 
 ### 5.5 WebDriver Attachment
 
-`ChromeDriverProcessHost`는 후보 service port를 선택하고 ChromeDriver를 `--port=N`으로 시작한다. stdout/stderr를 비동기 소비하고, 동일 PID가 살아 있는 상태에서 loopback `/status`가 ready를 반환해야 다음 단계로 넘어간다.
+`ChromeDriverProcessHost` selects a candidate service port and launches `--port=N`. It consumes stdout/stderr asynchronously and requires the same PID to remain alive while loopback `/status` reports ready.
 
-`WebDriverAttachmentFactory`는 다음 입력으로 새 attachment를 만든다.
+`WebDriverAttachmentFactory` uses:
 
-- 현재 Chrome debugger address
-- 외부 Chrome 연결에 맞게 `detach` capability 생략
-- 현재 session creation deadline
-- 소유 ChromeDriver PID와 service endpoint
+- The current Chrome debugger address.
+- No `detach` capability for external Chrome attachment.
+- The current session-creation deadline.
+- The owned driver PID and service endpoint.
 
-공개 `RemoteWebDriver` 경로를 사용하므로 지원 계약은 core W3C 기능이다. Selenium의 Chrome vendor convenience command는 MVP 계약에 포함하지 않는다.
+The public `RemoteWebDriver` path supports core W3C commands. Chrome-specific Selenium convenience commands are outside the MVP contract.
 
-`DetachAwareCommandExecutor`는 정상 명령을 service endpoint로 전달하지만 detaching 상태에서는 `Quit`을 로컬 성공으로 처리한다. ChromeDriver PID를 먼저 종료한 뒤 WebDriver dispose가 죽은 endpoint에 매달리거나 Chrome에 종료 명령을 전달하지 않도록 하기 위함이다.
+`DetachAwareCommandExecutor` forwards normal commands but treats `Quit` as a local success while detaching. Terminating the driver PID before disposing WebDriver prevents dead-endpoint hangs and Chrome shutdown commands.
 
-`AttachmentEpochGuard`는 모든 facade 명령 앞에서 state와 epoch를 검사한다. 검사를 통과한 명령만 in-flight counter에 등록되고, 완료 시 반드시 해제된다.
+`AttachmentEpochGuard` checks state and epoch before every facade command. Admitted commands increment the in-flight count and always decrement it on completion.
 
 ### 5.6 Patching
 
-`DriverArtifactResolver`는 Chrome과 ChromeDriver 버전 및 원본 hash를 읽는다. `DriverPatchCache`는 원본을 불변으로 두고 별도 임시 사본을 만든다.
+`DriverArtifactResolver` reads browser/driver versions and the original hash. `DriverPatchCache` keeps the source immutable and makes a separate temporary copy.
 
-`IDriverPatchStrategy`는 지원 version 범위, pattern별 정확한 예상 match 수, recipe id를 선언한다. 결과는 원본 hash, 결과 hash, recipe와 match count가 포함된 manifest와 함께 원자적으로 승격한다. 어떤 값이라도 예상과 다르면 패치하지 않은 원본으로 조용히 fallback하지 않고 시작을 실패시킨다.
+`IDriverPatchStrategy` declares supported versions, exact expected matches per pattern, and recipe ID. Results are promoted atomically with a manifest of source/result hashes, recipe, and match counts. Any mismatch fails startup; do not silently use the unpatched original.
 
-패치는 기본 비활성화다. lifecycle이나 CDP 모듈은 patch 구현을 알지 못하며, 최종 driver executable 경로만 입력받는다.
+Patching defaults to disabled. Lifecycle/CDP components know only the resulting executable path, not patch internals.
 
 ### 5.7 Diagnostics
 
-모든 operation에는 correlation id가 있다. 상태 전이, PID, endpoint 발견, target/session 변경, generation/epoch, timeout, cleanup 결과를 구조화 로그와 `BrowserHealthSnapshot`에 기록한다.
+Every operation has a correlation ID. Structured logs and `BrowserHealthSnapshot` record transitions, PIDs, endpoint discovery, target/session changes, generation/epoch, timeouts, and cleanup.
 
-로그 기본값은 cookie, storage, page source, script result와 query/fragment를 포함한 전체 URL을 제외한다. 사용자 callback과 log sink 오류가 lifecycle을 중단시키지 않도록 비동기 경계와 제한된 buffer를 둔다.
+Default logs omit cookies, storage, page source, script results, and full URLs including queries/fragments. Async boundaries and bounded buffers isolate user callbacks/log sinks from lifecycle execution.
 
-## 6. 의존 방향
+## 6. Dependency direction
 
-의존성은 외부 경계에서 구체 구현 쪽으로 한 방향만 흐른다.
+Dependencies flow from the public boundary toward concrete implementations.
 
 ```text
 Public API
@@ -176,22 +176,20 @@ Infrastructure implementations
 Windows / Chrome / ChromeDriver / Selenium / WebSocket / File system
 ```
 
-의존 규칙:
+- Public APIs do not reference concrete Selenium or Windows handle types.
+- CDP and WebDriver modules do not directly start/stop one another.
+- Hosting does not know navigation policy.
+- Patching does not launch processes.
+- Diagnostics does not mutate business state.
+- Only Lifecycle combines components and commits state.
 
-- Public API는 Selenium concrete type과 Windows handle type을 참조하지 않는다.
-- CDP와 WebDriver 모듈은 서로 직접 시작하거나 종료하지 않는다.
-- Hosting은 navigation policy를 알지 못한다.
-- Patching은 process를 시작하지 않는다.
-- Diagnostics는 business state를 변경하지 않는다.
-- Lifecycle만 여러 하위 모듈을 조합하고 상태를 commit한다.
+The initial engine can use namespace/internal boundaries in one package/assembly. Native input and the Legacy facade are separate packages. Avoid premature assembly splitting.
 
-초기 구현은 하나의 NuGet package와 assembly 안에서 namespace/internal 경계로 시작할 수 있다. native input과 legacy facade만 별도 package다. 내부 경계가 안정되기 전에 assembly를 과도하게 분할하지 않는다.
-
-## 7. 런타임 상태 모델
+## 7. Runtime state model
 
 ### 7.1 Aggregate state
 
-외부에 노출하는 `BrowserState`는 lifecycle의 큰 단계를 나타낸다.
+Public `BrowserState` represents major lifecycle stages:
 
 - `Stopped`
 - `StartingChrome`
@@ -204,54 +202,50 @@ Windows / Chrome / ChromeDriver / Selenium / WebSocket / File system
 - `Faulted`
 - `Disposing`
 
-Chrome process, CDP transport, WebDriver attachment와 profile은 별도 health 축으로 유지한다. 예를 들어 `CdpOnly`는 Chrome이 살아 있고 CDP가 건강하지만 WebDriver attachment는 없다는 의미다.
+Track Chrome, CDP transport, attachment, and profile health independently. For example, `CdpOnly` means live Chrome and healthy CDP with no WebDriver attachment.
 
-### 7.2 SessionGeneration과 AttachmentEpoch
+### 7.2 SessionGeneration and AttachmentEpoch
 
-두 번호의 의미를 섞지 않는다.
-
-| 값 | 변경 시점 | 용도 |
+| Value | Change point | Purpose |
 |---|---|---|
-| `SessionGeneration` | 새 W3C session 생성이 성공한 뒤 | 성공한 session 순서와 진단 |
-| `AttachmentEpoch` | disconnect 시작 시 즉시 폐기하고 새 attachment 확정 시 commit | lease와 element의 사용 가능성 검사 |
+| `SessionGeneration` | After successful creation of a W3C session | Successful-session sequence and diagnostics |
+| `AttachmentEpoch` | Invalidate immediately on disconnect; commit a new attachment | Lease/element validity |
 
-generation만 사용하면 disconnect 후 reconnect가 아직 성공하지 않은 구간에서 이전 lease가 유효해 보이는 문제가 생긴다. 따라서 실제 command admission은 state와 epoch를 기준으로 한다.
+Generation alone would leave old leases apparently valid between disconnect and successful reconnect. Admission therefore uses state plus epoch.
 
-### 7.3 상태 commit 규칙
+### 7.3 State commit rules
 
-하위 작업 성공만으로 외부 상태를 먼저 바꾸지 않는다. lifecycle coordinator가 필요한 불변조건을 모두 확인한 뒤 상태를 한 번에 commit한다.
+Do not expose a new state merely because one component succeeded. The coordinator checks every required invariant before committing atomically. `WebDriverAttached` requires:
 
-예를 들어 `WebDriverAttached`가 되려면 다음이 모두 참이어야 한다.
+- The original Chrome PID and creation time.
+- A healthy browser CDP connection and controlled target.
+- A live ChromeDriver PID with successful `/status` readiness.
+- A created W3C session ID.
+- An installed guarded executor and new epoch.
 
-- Chrome PID와 create time이 시작 때 기록한 값과 같다.
-- CDP browser connection과 controlled target가 건강하다.
-- ChromeDriver PID가 살아 있고 `/status` readiness를 통과했다.
-- W3C session id가 생성됐다.
-- guarded executor와 새 epoch가 설치됐다.
+## 8. Main execution flows
 
-## 8. 핵심 실행 흐름
+### 8.1 Startup
 
-### 8.1 시작
+1. Validate options, OS/runtime support, binary versions, and profile ownership.
+2. Prepare a verified patch-cache copy if requested.
+3. Start Chrome and discover `DevToolsActivePort`.
+4. Connect browser CDP and record protocol/browser versions.
+5. Enable discovery and wait for Chrome's first page within `CdpConnect`. Do not create a replacement tab when the initial list is empty. Select the controlled session for one page; use explicit selection rules for actual multiple pages.
+6. Start ChromeDriver separately and verify `/status` readiness.
+7. Create a W3C session using debugger address; omit the rejected external-attach `detach` capability.
+8. Commit generation/epoch and return `WebDriverAttached`.
 
-1. 옵션, 지원 OS/runtime, binary version과 profile ownership을 검증한다.
-2. 필요하면 검증된 patch cache 사본을 준비한다.
-3. Chrome을 시작하고 `DevToolsActivePort`를 찾는다.
-4. browser CDP WebSocket에 연결하고 protocol/browser version을 기록한다.
-5. target discovery를 활성화하고 `CdpConnect` 제한 시간 안에서 Chrome의 첫 page target을 기다린다. 초기 목록이 비어 있어도 대체 탭을 생성하지 않는다. 페이지가 하나면 controlled page session을 확정하며, 실제 여러 페이지가 있으면 기존의 명시적 선택 규칙을 적용한다.
-6. ChromeDriver를 별도 프로세스로 시작하고 `/status` readiness를 확인한다.
-7. debugger address로 새 W3C session을 만든다. 외부 Chrome 연결에서 거부되는 `detach` capability는 보내지 않는다.
-8. generation과 epoch를 commit하고 `WebDriverAttached`를 반환한다.
-
-각 단계 실패 시 이미 소유한 자원만 역순 정리한다.
+On failure, clean up only resources already owned, in reverse order.
 
 ### 8.2 Standard navigation
 
-1. lifecycle/command admission이 `WebDriverAttached`와 현재 epoch를 확인한다.
-2. guarded W3C navigation을 실행한다.
-3. 결과 URL과 오류 category를 facade 모델로 변환한다.
-4. attachment와 generation은 유지한다.
+1. Admission checks `WebDriverAttached` and the current epoch.
+2. Execute guarded W3C navigation.
+3. Map the result URL and error category to facade models.
+4. Preserve attachment and generation.
 
-### 8.3 Detached navigation과 reconnect
+### 8.3 Detached navigation and reconnect
 
 ```mermaid
 sequenceDiagram
@@ -277,159 +271,157 @@ sequenceDiagram
     L-->>App: NavigationResult
 ```
 
-`reconnect=false`이면 CDP navigation 완료 후 `CdpOnly`로 남는다. 중간에 Chrome이나 CDP가 사라지면 새 Chrome을 자동 시작하지 않고 `Faulted`가 된다.
+With `reconnect=false`, remain `CdpOnly` after CDP navigation. Losing Chrome or CDP enters `Faulted`; do not start a new browser automatically.
 
-### 8.4 명시적 disconnect
+### 8.4 Explicit disconnect
 
-1. lifecycle gate를 얻는다.
-2. epoch를 즉시 바꾸고 새 WebDriver 명령을 차단한다.
-3. in-flight 명령을 `DisconnectDrain`까지 기다린다.
-4. controlled target 복구 정보를 snapshot한다.
-5. executor를 detaching으로 전환한다.
-6. 소유 ChromeDriver PID를 종료한다.
-7. stale WebDriver client와 transport를 bounded dispose한다.
-8. CDP로 Chrome PID와 target 건강성을 확인한다.
-9. 건강하면 `CdpOnly`, 아니면 `Faulted`를 commit한다.
+1. Acquire the lifecycle gate.
+2. Immediately rotate epoch and block new WebDriver commands.
+3. Drain in-flight commands up to `DisconnectDrain`.
+4. Snapshot controlled-target recovery information.
+5. Switch the executor to detaching.
+6. Terminate the owned ChromeDriver PID.
+7. Dispose the stale client/transport with a bound.
+8. Probe Chrome PID and target health through CDP.
+9. Commit `CdpOnly` if healthy, otherwise `Faulted`.
 
-### 8.5 reconnect
+### 8.5 Reconnect
 
-1. `CdpOnly`와 Chrome/CDP 건강성을 확인한다.
-2. target registry를 갱신하고 controlled target의 존재를 확인한다.
-3. 새 ChromeDriver process와 WebDriver session을 만든다.
-4. target과 WebDriver current context를 조정한다.
-5. 모호하면 임의 선택하지 않고 `AmbiguousTarget`으로 실패한다.
-6. 성공한 경우에만 generation을 증가시키고 새 epoch를 commit한다.
+1. Verify `CdpOnly` and Chrome/CDP health.
+2. Refresh the registry and verify the controlled target exists.
+3. Create a new driver process and session.
+4. Reconcile the target and WebDriver current context.
+5. Fail with `AmbiguousTarget` rather than guessing.
+6. Increment generation and commit the new epoch only on success.
 
-### 8.6 최종 종료
+### 8.6 Final shutdown
 
-최종 `StopAsync`/`DisposeAsync`는 disconnect와 달리 library-owned Chrome까지 종료한다.
+Unlike disconnect, `StopAsync`/`DisposeAsync` also terminate library-owned Chrome.
 
-1. 새 lifecycle/command 요청을 닫고 epoch를 폐기한다.
-2. in-flight WebDriver 명령을 bounded drain한다.
-3. attachment가 있으면 detaching executor와 정확한 ChromeDriver PID를 정리한다.
-4. Chrome에 정상 종료를 요청하고 제한 시간 동안 기다린다.
-5. 필요하면 기록한 library-owned process tree만 강제 종료한다.
-6. CDP read loop, event channel과 socket을 종료한다.
-7. background task와 event subscription을 drain한다.
-8. caller-owned profile lock을 해제한다.
-9. marker가 일치하는 temporary profile만 삭제한다.
-10. 잔존 PID, port, file handle과 cleanup failure를 최종 health에 기록한다.
+1. Close new lifecycle/command admission and invalidate epoch.
+2. Drain in-flight commands with a bound.
+3. Clean up any attachment with the detaching executor and exact driver PID.
+4. Request graceful Chrome shutdown and wait within the deadline.
+5. If needed, force only the recorded owned process tree.
+6. Stop CDP read loops, event channels, and sockets.
+7. Drain background tasks/subscriptions.
+8. Release caller-profile locks.
+9. Delete only temporary profiles with matching markers.
+10. Record remaining PIDs, ports, handles, and cleanup failures in final health.
 
-호출자 cancellation은 1단계 진입을 재촉할 수 있지만, 시작된 cleanup은 별도 scope에서 최대 10초까지 계속된다.
+Caller cancellation may hasten entry to shutdown, but cleanup continues in a separate scope for up to ten seconds.
 
-## 9. 동시성 모델
+## 9. Concurrency model
 
 ### 9.1 Lifecycle gate
 
-start 이후 navigation, disconnect, reconnect와 stop은 인스턴스별 단일 async gate로 직렬화한다. 같은 gate를 기다리는 operation은 자신의 cancellation과 전체 deadline을 유지한다.
+After startup, navigation/disconnect/reconnect/stop use one async gate per instance. Waiting operations retain their own cancellation and overall deadlines.
 
-stop이 요청되면 대기 중인 새 operation보다 우선하며, 이후 요청은 `ObjectDisposed` 또는 상태 오류로 빠르게 실패한다.
+Stop takes precedence over queued new operations; later requests fail promptly with `ObjectDisposed` or a state error.
 
 ### 9.2 WebDriver command admission
 
-guarded command는 다음 순서를 따른다.
+1. Check current state and lease epoch.
+2. Increment the in-flight count if admission is open.
+3. Recheck epoch immediately to close the disconnect race.
+4. Execute the Selenium command.
+5. Decrement in `finally`.
 
-1. 현재 state와 lease epoch를 검사한다.
-2. admission이 열려 있으면 in-flight counter를 증가시킨다.
-3. 증가 직후 epoch를 다시 확인하여 disconnect와의 race를 닫는다.
-4. Selenium command를 실행한다.
-5. `finally`에서 counter를 감소시킨다.
+Disconnect closes admission, rotates epoch, and waits a bounded time for zero in-flight commands. On timeout, terminate the attachment process and normalize results to `AttachmentLost`.
 
-disconnect는 admission을 닫고 epoch를 회전한 뒤 counter가 0이 될 때까지 제한 시간만 기다린다. timeout이면 attachment process를 종료하고 command 결과를 `AttachmentLost`로 정규화한다.
+### 9.3 CDP transport and events
 
-### 9.3 CDP transport와 event
+Multiplex requests/responses with numeric IDs. Per-target queues preserve target-mutation/navigation order.
 
-CDP request/response는 numeric id로 multiplex한다. target mutation과 navigation은 target별 queue로 순서를 보존한다.
+Read loops only parse messages and publish internally. Run user handlers/log sinks on another scheduler. Overflow may discard older observation events according to policy, but must not discard target lifecycle events; mark the connection unhealthy instead.
 
-transport read loop는 message parsing과 internal channel publish만 수행한다. 사용자 event handler와 logging sink는 별도 scheduler에서 실행한다. event buffer overflow는 정책에 따라 오래된 관찰 event를 버릴 수 있지만 target lifecycle event는 버리지 않고 connection을 unhealthy로 표시한다.
+## 10. Errors and recovery boundaries
 
-## 10. 오류와 복구 경계
+Classify errors by the action available to callers, not their implementation location.
 
-오류는 발생 위치가 아니라 호출자가 취할 조치에 맞춰 분류한다.
-
-| 분류 | 기본 복구 | 상태 결과 |
+| Category | Default recovery | Resulting state |
 |---|---|---|
-| configuration/version/patch | 자동 복구 없음 | `Stopped` 또는 `Faulted` |
-| ChromeDriver start/session failure | 정확한 driver PID 정리 후 재시도 한도 적용 | Chrome/CDP가 건강하면 `CdpOnly` |
-| attached command transport failure | epoch 폐기 후 attachment 제거 | `CdpOnly` 또는 `Faulted` |
-| CDP socket drop | 같은 Chrome endpoint에 1회 복구 | 성공 시 기존 큰 상태 유지 |
-| target close/crash | 다른 target로 자동 전환하지 않음 | 명시 target 오류 |
-| Chrome exit | 자동 browser restart 없음 | `Faulted` |
-| cleanup incomplete | 잔존 자원 진단 보존 | `Faulted` |
+| Configuration/version/patch | None | `Stopped` or `Faulted` |
+| Driver startup/session failure | Clean exact PID, apply retry limit | `CdpOnly` if Chrome/CDP healthy |
+| Attached transport failure | Invalidate epoch, remove attachment | `CdpOnly` or `Faulted` |
+| CDP socket loss | One attempt on the same Chrome endpoint | Preserve major state on success |
+| Target close/crash | No automatic target switch | Explicit target error |
+| Chrome exit | No automatic browser restart | `Faulted` |
+| Incomplete cleanup | Preserve residual-resource diagnostics | `Faulted` |
 
-복구는 “CDP socket 재연결 → WebDriver attachment 재생성”까지만 자동 허용한다. Chrome 재시작과 profile state migration은 후속 opt-in 기능이다.
+Automatic recovery is limited to CDP reconnection followed by attachment recreation. Chrome restart and profile-state migration are later opt-in features.
 
-## 11. Timeout과 cancellation 전파
+## 11. Timeouts and cancellation
 
-모든 public async 호출은 하나의 operation deadline을 만든다. 실제 단계 timeout은 `min(단계 기본값, operation 남은 시간, 호출자 deadline)`이다.
+Every public async call creates an operation deadline. Each stage uses `min(stage default, operation time remaining, caller deadline)`.
 
-동기적인 WebDriver new-session과 Selenium 명령은 전용 작업에서 실행한다. deadline이 지나면 작업이 스스로 취소됐다고 가정하지 않고 정확한 ChromeDriver PID를 종료해 I/O를 끊는다. 그 뒤 Chrome 상태를 CDP로 다시 확인한다.
+Run synchronous WebDriver session creation and Selenium commands on dedicated work. After a deadline, do not assume cancellation stopped them: terminate the exact driver PID to break I/O, then probe Chrome through CDP.
 
-cleanup은 caller token과 분리하되 10초 hard cap을 갖는다. timeout 숫자의 기준값은 [spec.md §14.1](spec.md#141-timeout과-cancellation)을 따른다.
+Cleanup has a separate token and ten-second hard cap. See [specification section 14.1](spec.md#141-timeouts-and-cancellation) for baseline values.
 
-## 12. 데이터와 영속성
+## 12. Data and persistence
 
-MVP에서 서버형 데이터베이스는 없다.
+The MVP has no server database.
 
-### 12.1 메모리 상태
+### 12.1 In-memory state
 
-- lifecycle state와 operation id
-- Chrome/CDP/WebDriver health 축
-- PID/create time/path와 endpoint
-- target registry와 target session
-- runtime script registry
-- session generation과 attachment epoch
-- in-flight command와 background task registry
+- Lifecycle state and operation ID.
+- Separate Chrome/CDP/WebDriver health.
+- PID/creation time/path and endpoints.
+- Target registry and sessions.
+- Runtime script registry.
+- Session generation and attachment epoch.
+- In-flight commands and background tasks.
 
-### 12.2 파일 상태
+### 12.2 Files
 
-- temporary 또는 caller-specified Chrome profile
-- profile ownership marker와 lock
-- immutable source driver metadata
-- patched driver cache와 manifest
-- 선택적 진단 파일
+- Temporary or caller-specified Chrome profiles.
+- Ownership markers and profile locks.
+- Immutable source-driver metadata.
+- Patched-driver cache and manifests.
+- Optional diagnostic files.
 
-marker와 manifest는 schema version을 가진다. 알 수 없는 새 schema를 예전 버전이 수정하거나 삭제하지 않는다. 민감한 browser storage는 라이브러리 별도 파일로 복사하지 않는다.
+Markers/manifests carry schema versions. Older implementations must not modify/delete unknown newer schemas. Do not copy sensitive browser storage into separate library files.
 
-## 13. 보안 경계
+## 13. Security boundaries
 
-- DevTools와 ChromeDriver endpoint는 loopback에만 bind한다.
-- endpoint 주소와 profile 경로는 민감한 진단 정보로 취급한다.
-- 기본 Chrome profile과 공유 profile 사용을 거부한다.
-- executable은 canonical path, version과 hash를 기록한다.
-- archive 추출을 추가할 경우 path traversal와 예상하지 않은 entry를 거부한다.
-- process 종료는 기록한 PID/create time/path가 일치할 때만 수행한다.
-- patch cache는 실행 권한과 쓰기 권한을 최소화하고 원자적으로 publish한다.
-- arbitrary CDP API는 고급 기능으로 격리하고 URL allowlist와 redacted logging을 유지한다.
+- Bind DevTools/driver endpoints to loopback only.
+- Treat endpoint addresses and profile paths as sensitive diagnostics.
+- Reject default/shared profiles.
+- Record canonical executable paths, versions, and hashes.
+- If archive extraction is added, reject path traversal and unexpected entries.
+- Terminate only after matching recorded PID/creation time/path.
+- Minimize patch-cache execute/write permissions and publish atomically.
+- Isolate arbitrary CDP as an advanced feature; retain URL allowlists and redacted logs.
 
-탐지 회피, 인증 우회, CAPTCHA 자동 풀이는 신뢰 경계나 성공 기준에 포함하지 않는다.
+Detection evasion, authentication bypass, and automatic CAPTCHA solving are not trust boundaries or success criteria.
 
-## 14. 관측 가능성
+## 14. Observability
 
-각 log event는 가능한 경우 다음 필드를 가진다.
+Where available, each log event records:
 
-- library/browser/driver/Selenium/protocol version
-- browser instance id와 operation id
-- 이전/다음 lifecycle state
-- generation과 attachment epoch
-- Chrome/ChromeDriver PID 및 redacted endpoint
-- target key, target/session 변경 원인
-- 단계명, 경과 시간, timeout source
-- recovery attempt와 cleanup 결과
+- Library/browser/driver/Selenium/protocol versions.
+- Browser instance and operation IDs.
+- Previous/next lifecycle states.
+- Generation and epoch.
+- Chrome/driver PIDs and redacted endpoints.
+- Target key and reasons for target/session changes.
+- Stage, elapsed time, and timeout source.
+- Recovery attempts and cleanup results.
 
-health snapshot은 “connected” boolean 하나가 아니라 Chrome, CDP, WebDriver, profile과 background task 상태를 각각 보여준다. 내부 flag만으로 건강성을 선언하지 않고 실제 process/endpoint probe 결과와 마지막 성공 시각을 포함한다.
+Health snapshots expose separate Chrome/CDP/WebDriver/profile/background-task status, not one connected flag. Include real process/endpoint probes and last-success times rather than trusting internal flags alone.
 
-## 15. 배포와 소스 구조 제안
+## 15. Suggested source and package layout
 
-초기 저장소는 다음 경계를 권장한다. 이는 구현 순서와 테스트 위치를 설명하는 제안이며 현재 파일을 생성하라는 뜻은 아니다.
+This proposal describes boundaries and test placement; it is not an instruction to create these projects now.
 
 ```text
 src/
-  BrowserDock/                  public API와 lifecycle orchestration
-  BrowserDock.Cdp/              최소 CDP transport/target/page/runtime
+  BrowserDock/                  public API and lifecycle orchestration
+  BrowserDock.Cdp/              minimal CDP transport/target/page/runtime
   BrowserDock.Selenium/         guarded W3C attachment adapter
-  BrowserDock.Windows/          process/profile/lock 구현
-  BrowserDock.Patching/         artifact 검증과 선택 patch
+  BrowserDock.Windows/          process/profile/lock implementation
+  BrowserDock.Patching/         artifact validation and optional patching
 tests/
   BrowserDock.UnitTests/
   BrowserDock.ContractTests/
@@ -437,65 +429,65 @@ tests/
   BrowserDock.LeakTests/
 ```
 
-배포 package를 반드시 프로젝트 수만큼 나누지는 않는다. `BrowserDock.NativeInput`은 후속 선택 package로 남긴다. `BrowserDock.Legacy`는 C# 7.3 / .NET Framework 4.8.1용 선택 package로 구현한다. 공통 core와 Legacy 모두 `net481;net8.0;net10.0`을 target하며, Legacy는 설정·결과·예외를 변환하는 Task facade만 담당한다. Hosting/CDP/WebDriver 엔진과 상태 기계는 core 한 곳에 유지한다. Framework 내부 호환성 구현은 `Compatibility.cs`에 모으고 컴파일러 보조 타입은 internal로 제한한다. 설치 절차는 [Framework 안내](framework481.md)를 참조한다.
+Packages need not map one-to-one to projects. Reserve `BrowserDock.NativeInput` for later. Implement optional `BrowserDock.Legacy` for C# 7.3/Framework 4.8.1. Core and Legacy both target `net481;net8.0;net10.0`; Legacy only converts options/results/exceptions through a Task facade. Keep the Hosting/CDP/WebDriver engine and state machine in Core. Centralize Framework compatibility in `Compatibility.cs` and keep compiler helper types internal. See the [Framework guide](framework481.md).
 
-## 16. 테스트 아키텍처
+## 16. Test architecture
 
-### 16.1 단위 테스트 seam
+### 16.1 Unit-test seams
 
-- clock와 deadline source
-- process launcher와 process probe
-- file system/profile lock
-- CDP transport와 event stream
-- ChromeDriver status endpoint
-- WebDriver command executor
-- patch recipe와 hash provider
-- logging/event sink
+- Clock/deadline source.
+- Process launcher/probe.
+- Filesystem/profile lock.
+- CDP transport/event stream.
+- Driver status endpoint.
+- WebDriver executor.
+- Patch recipe/hash provider.
+- Logging/event sinks.
 
-process와 socket을 흉내 낸 단위 테스트는 상태 전이와 cleanup 순서를 빠르게 검증한다. 실제 브라우저 수용 시험을 대체하지 않는다.
+Process/socket substitutes quickly verify state and cleanup ordering, but do not replace browser acceptance.
 
-### 16.2 Contract test
+### 16.2 Contract tests
 
-- 고정 Selenium package에 대한 public constructor/executor/dispose 경로
-- Chrome major별 사용 CDP method와 event shape
-- ChromeDriver `/status`와 W3C new-session 응답
-- patch fixture별 pattern count와 결과 hash
+- Public construction/execution/disposal with the pinned Selenium package.
+- Used CDP methods/event shapes per Chrome major.
+- Driver `/status` and W3C new-session responses.
+- Pattern counts/result hashes for patch fixtures.
 
-### 16.3 Windows 통합 테스트
+### 16.3 Windows integration
 
-최우선 release gate는 다음이다.
+Primary release gates:
 
-1. disconnect 뒤 동일 Chrome PID와 CDP endpoint 유지
-2. 새 W3C SessionId로 reconnect하고 기존 browser state 확인
-3. disconnect 시작 즉시 이전 lease/element의 로컬 실패
-4. 반복 실행 뒤 owned process, port, socket, task, profile 누수 없음
-5. CDP와 ChromeDriver 동시 연결 중 target/session event 일관성
+1. Preserve the same Chrome PID and CDP endpoint after disconnect.
+2. Reconnect with a new W3C SessionId and preserved browser state.
+3. Reject old leases/elements locally as soon as disconnect starts.
+4. No owned-process/port/socket/task/profile leaks after repetition.
+5. Consistent target/session events with simultaneous CDP and ChromeDriver connections.
 
-세부 수치와 반복 횟수는 [spec.md §20](spec.md#20-검증-가능한-수용-기준)을 따른다.
+Use the numbers and repetition counts in [specification section 20](spec.md#20-verifiable-acceptance-criteria).
 
-## 17. 주요 아키텍처 결정 기록
+## 17. Architecture decisions
 
-| 결정 | 선택 | 이유 | 재검토 조건 |
+| Decision | Choice | Reason | Revisit when |
 |---|---|---|---|
-| 제어 구조 | 장수명 CDP + 교체형 WebDriver | disconnect 중 browser 제어와 W3C 기능을 함께 제공 | 동시 CDP/ChromeDriver 충돌이 수용 시험에서 확인될 때 |
-| reconnect | 새 attachment 생성 | Selenium 객체 내부 재초기화와 reflection 제거 | 공식 reusable attachment API가 생길 때 |
-| public WebDriver | guarded facade | epoch/lifecycle 우회 방지 | 안전한 raw proxy 계약과 완전한 command interception이 입증될 때 |
-| stale guard | state + attachment epoch | disconnect 직후 즉시 무효화 | 없음; 핵심 불변조건 |
-| target 선택 | 명시적 `TargetKey` | window 순서 기반 오선택 방지 | 표준화된 WebDriver/CDP target identity가 제공될 때 |
-| driver lifecycle | 직접 child process 소유 | PID/readiness/cancellation/cleanup 통제 | Selenium public service API가 같은 통제를 제공할 때 |
-| binary patch | 기본 off, 별도 strategy | 버전 위험과 lifecycle 분리 | 안정된 공식 대체 수단이 생기거나 기능을 제거할 때 |
-| 외부 Chrome attach | MVP 제외 | 프로세스·profile 소유권과 보안 경계가 불명확 | 별도 API와 수용 시험이 설계될 때 |
-| native GUI input | 별도 후속 package | interactive desktop/DPI/RDP 등 환경 의존 | 명확한 사용 요구와 전용 CI가 생길 때 |
+| Control | Long-lived CDP + replaceable WebDriver | Browser control while disconnected, plus W3C commands | Acceptance reveals simultaneous-client conflicts |
+| Reconnect | New attachment | Avoid Selenium reinitialization/reflection | An official reusable-attachment API exists |
+| Public WebDriver | Guarded facade | Prevent epoch/lifecycle bypass | Safe raw proxy and complete interception are proven |
+| Stale guard | State + epoch | Immediate disconnect invalidation | Never; core invariant |
+| Target selection | Explicit `TargetKey` | Avoid window-order mistakes | Standard WebDriver/CDP identity exists |
+| Driver lifecycle | Own child process | Control PID/readiness/cancellation/cleanup | Public Selenium service APIs provide equivalent control |
+| Binary patch | Off by default, separate strategy | Isolate version risk | Stable official alternative or feature removal |
+| External Chrome attach | Outside MVP | Unclear process/profile ownership and security | Separate API and acceptance tests are designed |
+| Native input | Later separate package | Desktop/DPI/RDP dependence | Clear demand and dedicated CI |
 
-## 18. 구현 전에 남은 검증
+## 18. Pre-implementation validation questions
 
-다음은 구조의 타당성을 좌우하므로 실제 Windows fixture에서 먼저 확인한다.
+Validate these architecture assumptions on a real Windows fixture first:
 
-1. `detach` 생략, Quit 차단과 ChromeDriver PID 종료 조합이 Chrome을 확실히 유지하는가?
-2. `DetachAwareCommandExecutor`의 sync/async dispose가 죽은 endpoint에서 hard cap 안에 끝나는가?
-3. 독립 CDP client와 ChromeDriver의 동시 연결이 target event와 navigation을 방해하지 않는가?
-4. 재연결한 WebDriver와 controlled CDP target의 대응을 결정적으로 확정할 수 있는가?
-5. Chrome/ChromeDriver 각 지원 버전에서 debugger attach 제한 명령은 무엇인가?
-6. 선택 patch recipe가 실제 Stable/Stable-1 binary에서 선언한 match 수와 실행 가능성을 만족하는가?
+1. Does omitting detach, blocking Quit, and terminating the driver PID reliably preserve Chrome?
+2. Does `DetachAwareCommandExecutor` sync/async disposal finish within the hard cap against a dead endpoint?
+3. Do independent CDP and ChromeDriver connections coexist without disrupting target events/navigation?
+4. Can reconnected WebDriver be deterministically reconciled with the controlled CDP target?
+5. Which debugger-attach commands are unsupported for each supported version?
+6. Do optional recipes match the declared count and remain executable on real Stable/Stable-1 binaries?
 
-검증 결과가 1~4번 가정을 깨면 세부 구현을 우회해서 맞추지 않는다. 해당 아키텍처 결정을 갱신하고 [spec.md](spec.md)의 요구사항·상태도·수용 기준도 함께 수정한다.
+If questions 1–4 invalidate the design, revise the architecture decisions and the specification's requirements/state diagrams/acceptance criteria together rather than hiding the discrepancy in implementation workarounds.
