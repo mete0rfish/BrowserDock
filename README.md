@@ -2,7 +2,7 @@
 
 > Keep the browser. Swap the driver.
 
-[한국어](README.ko.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Usage guide](docs/usage.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 **Experimental.** BrowserDock manages a separately launched Chrome process, an independent CDP connection, and replaceable WebDriver sessions on Windows. Its lifecycle design is inspired by SeleniumBase UC Mode. This independent project is not an official SeleniumBase .NET binding.
 
@@ -22,7 +22,9 @@ No public NuGet release has been published by this project yet. Build from sourc
 
 Both packages target `net481;net8.0;net10.0` and share one engine. The .NET 10 fixture server is a test dependency, not a runtime dependency for Framework applications.
 
-Recorded verification: all targets compile; .NET 10 common tests (44 core + 22 Legacy) and five Python comparison-validator tests passed on macOS. **Actual Windows Chrome, .NET 8/Framework runtime tests, and SeleniumBase browser comparisons are not yet verified.** See the [verification record](docs/implementation.md) and [support policy](docs/support.md).
+Recorded verification (2026-09-24): the normal Windows 11 x64 suite passed **258 tests**, with zero failures or skips, using Chrome for Testing/ChromeDriver `154.0.8037.57`: Core net8.0/net10.0 passed 81 each; Legacy net481/net8.0/net10.0 passed 32 each. The recorded solution build had zero warnings or errors. These are existing execution records, not a new validation of the current checkout or a release candidate.
+
+**Not covered by that run:** Stress, privileged reparse-point tests, Stable-1, SeleniumBase Python browser comparisons, and real binary patch recipes. See the [verification record](docs/implementation.md) and [support policy](docs/support.md).
 
 ## Build and try
 
@@ -97,4 +99,4 @@ Read the [test plan](docs/test-plan.md), [SeleniumBase reference runner](tests/s
 
 ## License and provenance
 
-The project license is pending the owner's selection. Publication is blocked until the license and copyright holder are recorded. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency and source provenance.
+BrowserDock is licensed under the [MIT License](LICENSE). Copyright (c) 2026 mete0rfish. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency and source provenance.

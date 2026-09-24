@@ -33,6 +33,6 @@ Keep unrelated refactoring separate. Follow existing formatting. Do not add brow
 
 Submit only material you have permission to contribute. Identify copied/adapted code and preserve applicable notices. Reference links are not permission to relicense source. Do not import or translate GPL code into this independent project without resolving the licensing implications first.
 
-Once the project license is finalized, contributions are accepted under that same license. No separate CLA is currently required. Maintainers do not promise a response or release schedule.
+Contributions are accepted under the project's [MIT License](LICENSE). No separate CLA is currently required. Maintainers do not promise a response or release schedule.
 
 Use the bug template with OS build, architecture, runtime, Chrome/driver versions, commit, patch mode, and a local reproduction. Strip private data from logs. Report vulnerabilities through [SECURITY.md](SECURITY.md).

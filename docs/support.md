@@ -16,4 +16,16 @@ The .NET 8 date follows [Microsoft's lifecycle](https://dotnet.microsoft.com/en-
 
 Build support differs from execution support. Common tests run on macOS/Linux, but product browser hosting there is not supported. See [implementation.md](implementation.md) for actual results.
 
+## Recorded validation (2026-09-24)
+
+The existing Windows 11 x64 build 26100 record uses Chrome for Testing/ChromeDriver
+`154.0.8037.57`. The normal suite passed 258 tests with zero failures or skips:
+Core net8.0/net10.0 passed 81 each; Legacy net481/net8.0/net10.0 passed 32 each.
+This is a recorded tested pair, not a claim about every M115+ version or a new
+validation of the current checkout. See the [execution record](implementation.md#2026-09-24-windows-11-connection-regression-verification).
+
+Stress, privileged reparse-point tests, Stable-1, SeleniumBase Python browser comparisons,
+and real binary patch recipes were not covered. Release acceptance still requires
+validation of the exact release candidate commit.
+
 Release evidence must record commit, library/Selenium/Chrome/driver versions, runtime, OS build, hashes, test selection, and skipped/not-run tests. Older alpha versions are not automatically backported.

@@ -39,3 +39,6 @@ by default. Common tests alone do not establish real Windows browser compatibili
 
 The package project page contains current documentation and release notes.
 Dependency and provenance information is included in THIRD-PARTY-NOTICES.md.
+
+BrowserDock is licensed under the [MIT License](https://github.com/mete0rfish/BrowserDock/blob/main/LICENSE).
+Copyright (c) 2026 mete0rfish. Dependencies retain their own licenses.

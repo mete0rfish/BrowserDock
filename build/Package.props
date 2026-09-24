@@ -1,9 +1,9 @@
 <Project>
-  <!-- Fill the author and license after the owner confirms the public identity. -->
+  <!-- Public identity and license confirmed by the owner. -->
   <PropertyGroup>
-    <Authors></Authors>
+    <Authors>mete0rfish</Authors>
     <RepositoryUrl>https://github.com/mete0rfish/BrowserDock</RepositoryUrl>
-    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>
     <PackageTags>selenium;chrome;webdriver;cdp;automation</PackageTags>
