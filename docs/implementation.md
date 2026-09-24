@@ -1,5 +1,30 @@
 # 구현 및 검증 기록
 
+## 현재 검증 요약 (2026-09-24 문서 정리)
+
+아래 표는 이 문서의 기존 실행 기록을 요약한다. 이번 문서 정리에서는 시험을 재실행하지 않았으며, 현재 checkout 또는 릴리스 후보의 검증 결과가 아니다. 날짜별 과거 기록의 실패·미실행 내역은 진단 이력으로 보존한다.
+
+| 항목 | 최근 기록 및 남은 검증 |
+|---|---|
+| Windows 일반 시험 | Windows 11 x64 build 26100, Chrome/CfT·ChromeDriver 154.0.8037.57에서 258건 통과, 실패·건너뜀 0 |
+| 런타임별 결과 | Core net8.0/net10.0 각 81건, Legacy net481/net8.0/net10.0 각 32건 |
+| 솔루션 빌드 | 해당 Windows 기록에서 경고·오류 0 |
+| Stress·권한 필요 시험 | Stress 및 권한이 필요한 reparse-point 시험 미검증 |
+| 추가 브라우저 검증 | Stable-1, SeleniumBase Python 브라우저 비교 미검증 |
+| 실제 바이너리 패치 | recipe 미제공·미검증; 합성 fixture 시험과 구분 |
+| 릴리스 승인 | 동일 후보 커밋의 CI·Windows Stress·패키지·소비자·Source Link 검증 필요 |
+
+상세 환경과 산출물 경로는 [Windows 연결 회귀 검증](#2026-09-24-windows-11-연결-회귀-검증)에 기록되어 있다.
+
+## 2026-09-24 라이선스와 운영 정보 확정
+
+소유자 확인에 따라 MIT 라이선스와 저작권자·패키지 작성자 `mete0rfish`를 반영했다.
+비공개 보안·행동강령 신고는 `sungwonyoon326@gmail.com`으로 접수한다.
+루트 LICENSE, 패키지 메타데이터, README와 관련 운영 문서를 갱신했다.
+GitHub 비공개 취약점 신고 API는 404를 반환하여 활성화 여부를 확인하지 못했다.
+아래 과거 기록의 라이선스·연락처 미확정 상태는 이 변경으로 해소했다.
+공개 전환, NuGet 게시, 전체 출처·의존성 라이선스 검토는 별도 작업이다.
+
 ## 2026-09-12 BrowserDock 이름 전환
 
 공개 전 작업명을 `BrowserDock`으로 전환했다. 솔루션과 source/test 프로젝트 경로,
@@ -93,7 +118,9 @@ SeleniumBase 기준 커밋 `4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80`의 버전 
 
 ## 수용 기준 추적
 
-| 기준 | 제공한 시험 | 현재 실행 상태 |
+아래 표는 초기 구현 당시의 상태이며, 최신 결과는 문서 상단의 현재 검증 요약을 따른다.
+
+| 기준 | 제공한 시험 | 초기 구현 당시 실행 상태 |
 |---|---|---|
 | AC-01 Chrome 유지 | 30초 분리 유지·원 PID/create-time·CDP·driver port 종료 | Windows 실행 대기 |
 | AC-02 session 복구 | session ID 교체·profile/endpoint 유지·storage·DOM·click | Windows 실행 대기 |

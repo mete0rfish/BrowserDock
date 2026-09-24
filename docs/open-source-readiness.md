@@ -1,6 +1,6 @@
 # BrowserDock 오픈소스 전환 가이드라인
 
-가이드 작성 기준일: 2026-09-11. 아래 현황 표는 적용 전 진단이다. 후속 적용으로 영어/한국어 README, 기여·보안·행동강령, 이슈/PR 양식, Dependabot, SHA 고정 및 최소 권한 CI, 공통 alpha 버전·심볼 패키징과 배포 검증을 추가했다. 실제 적용 상태와 남은 설정은 [배포 절차](releasing.md)를 따른다. GitHub 원격은 `mete0rfish/BrowserDock`에 연결했다. 라이선스·권리자·신고 연락처는 소유자 확인 대기이며, 공개 전환이나 NuGet 게시는 수행하지 않았다. 로컬 Git 이력에 대한 제한적 secret 패턴 검사는 수행했지만 개인정보·권한·포괄적 비밀정보 감사를 완료했다는 의미는 아니다.
+최초 작성일: 2026-09-11. 현황 갱신일: 2026-09-24. 아래 표는 저장소 파일과 기존 실행 기록을 기준으로 갱신했다. 후속 적용으로 영어/한국어 README, 기여·보안·행동강령, 이슈/PR 양식, Dependabot, SHA 고정 및 최소 권한 CI, 공통 alpha 버전·심볼 패키징과 배포 검증을 추가했다. 실제 적용 상태와 남은 설정은 [배포 절차](releasing.md)를 따른다. GitHub 원격은 `mete0rfish/BrowserDock`에 연결했다. 2026-09-24 소유자 확인에 따라 MIT 라이선스, 저작권자·작성자 mete0rfish, 비공개 보안·행동강령 신고 이메일 sungwonyoon326@gmail.com을 반영했다. 공개 전환이나 NuGet 게시는 수행하지 않았다. 로컬 Git 이력에 대한 제한적 secret 패턴 검사는 수행했지만 개인정보·권한·포괄적 비밀정보 감사를 완료했다는 의미는 아니다.
 
 권장 경로는 **실험 단계 소스 공개 → Windows 검증 후 NuGet 시험판 → 지원 범위를 검증한 안정판**이다. 모든 기능이 완성될 때까지 소스 공개를 미룰 필요는 없지만, 사용자가 확인할 수 있는 기능·제약·검증 상태가 필요하다.
 
@@ -20,34 +20,29 @@
 
 ## 2. 현재 상태와 우선순위
 
-| 항목 | 확인한 현재 상태 | 필요한 조치 |
+2026-09-24 [공개 전 저장소 점검 및 조치](publication-audit.md)로 main 보호·필수 CI·main 한정 환경·Actions SHA 고정·이메일 이력 교체를 적용했다. 환경 승인과 secret scanning은 계정·저장소 제약으로 적용하지 못했고 전용 Windows runner도 남아 있다. PUBLIC_RELEASE_ENABLED=false를 유지한다.
+
+| 항목 | 확인한 현재 상태 | 남은 조치 |
 |---|---|---|
-| 라이선스 | 루트 LICENSE 없음, 고지 문서에 미결정 명시 | 권리 보유자와 라이선스 확정 |
-| 출처·의존성 | THIRD-PARTY-NOTICES 존재 | 직접·전이 의존성 및 test 전용 의존성, 실제 복사된 파일의 고지를 구분해 보완 |
-| 설명서 | 한국어 README, 설계·검증·Framework 안내 존재 | 영어 시작 페이지, 한국어 연결, 첫 실행 경로 정리 |
-| 공통 시험 | 기록상 .NET 10 core 44개·Legacy 22개, Python 판정기 5개 통과 | 공개할 커밋의 CI 결과로 다시 확인 |
-| 실제 브라우저 | Windows 시험 구현, 실제 실행 미검증 | Windows 11에서 선언할 지원 조합을 실행 |
-| 패키지 | 두 csproj의 버전 0.2.0, README 패키징 설정 존재 | 라이선스·저자·저장소·Source Link·심볼·공개 버전 정책 보완 |
-| 기여·보안 운영 | CONTRIBUTING/SECURITY/행동강령·issue template 없음 | 기본 운영 문서와 연락 경로 추가 |
-| CI | 공통 CI와 수동 self-hosted Windows workflow 존재 | 공개 PR 경계, 최소 권한, release workflow 및 실제 runner 준비 |
-| 변경 기록 | 최근 구현 변경이 아직 커밋되지 않은 상태 | 리뷰 가능한 커밋으로 정리하고 공개 기준 SHA 확정 |
+| 라이선스 | MIT LICENSE, 저작권자·작성자 mete0rfish, 패키지 메타데이터 반영 | 배포물에 동일 LICENSE 포함 확인 |
+| 출처·의존성 | THIRD-PARTY-NOTICES의 직접 의존성 버전을 csproj·requirements.txt와 대조해 정리 | 전이 의존성 및 실제 배포 파일의 라이선스·고지 검토 |
+| 설명서 | 영어·한국어 README, 설계·검증·Framework 안내 존재; Windows 일반 258건 통과 기록 반영 | 릴리스 후보 커밋의 검증 결과로 갱신 |
+| 공통 시험 | 2026-09-24 기록상 Core net8/net10 각 43건, Legacy net481/net8/net10 각 22건, 총 152건 통과 | 공개할 커밋의 CI 결과로 다시 확인 |
+| 실제 브라우저 | Windows 11 x64, Chrome/Driver 154.0.8037.57에서 일반 258건 통과, 실패·건너뜀 0 | 동일 후보 커밋의 Stress; Stable-1·Python 비교·권한 필요 시험·실제 recipe의 미검증 범위 명시 |
+| 패키지 | 공통 버전 0.2.0-alpha.1, 저자·MIT·저장소·README·심볼 설정 존재 | 실제 패키지 검사, 소비자 검증, 공개 커밋 Source Link 확인 |
+| 기여·보안 운영 | CONTRIBUTING·SECURITY·행동강령·템플릿 존재; 비공개 신고 이메일 확정 | GitHub 비공개 취약점 신고 활성화 여부는 미확인 |
+| CI | 공통·Windows·release workflow, SHA 고정·최소 권한·Dependabot 설정 존재 | 필수 검사·브랜치 보호 적용 완료; environment 승인 지원 조건과 runner 격리 준비 필요 |
+| 공개 기준 | 로컬 변경과 기존 검증 기록 존재 | 공개 이력 검토, 변경 커밋 정리, 릴리스 기준 SHA 확정 |
+
+시험 수치는 [구현 및 검증 기록](implementation.md)의 기존 실행 결과다. 이번 문서 갱신에서 새로 실행한 시험이 아니며, 전체 릴리스 승인을 뜻하지 않는다.
 
 ## 3. 소스 공개 전에 할 일
 
-### 3.1 라이선스 결정
+### 3.1 확정된 라이선스와 남은 출처 검토
 
-넓은 사용과 간단한 기여 절차가 목적이라면 **MIT를 우선 제안**한다. 저작권·라이선스 고지를 유지하는 조건으로 상업적 사용과 수정·재배포를 허용하는 간결한 라이선스다. [MIT 라이선스 안내](https://choosealicense.com/licenses/mit/)
+소유자가 MIT 라이선스와 저작권자·작성자 `mete0rfish`를 확정했다. 표준 원문은 [LICENSE](../LICENSE), 패키지 설정은 `build/Package.props`에 있으며 두 README와 기여 안내에도 반영했다.
 
-기여자의 특허 허여와 관련 조건을 명시하는 것이 중요하면 **Apache-2.0**을 비교한다. 해당 특허 허여는 라이선스에 정해진 기여자의 특허 범위에 적용되며 모든 특허 문제를 해결한다는 뜻은 아니다. [Apache-2.0 원문 §3~4](https://www.apache.org/licenses/LICENSE-2.0)
-
-확정 절차:
-
-1. 개인·회사·공동 기여자 중 누가 공개 권한을 보유하는지 확인한다. 회사 업무나 다른 사람의 코드가 포함됐다면 그 부분의 공개 권한부터 확인한다.
-2. 선택한 표준 라이선스를 루트 `LICENSE`로 추가하고 저작권 보유자 표기를 확정한다. 제한 문구를 임의로 덧붙여 다른 라이선스로 만들지 않는다.
-3. 두 NuGet 패키지의 `PackageLicenseExpression`과 README·고지 문서의 미결정 문구를 일치시킨다.
-4. 배포 파일에 들어가는 타사 소스·바이너리·고지를 실제 의존성 버전과 대조한다. 참조 링크만 있는 것과 소스를 복사한 것은 다르게 기록한다.
-
-저장소를 Public으로 설정하는 것만으로 일반적인 오픈소스 사용·수정·재배포 권한이 생기지는 않는다. [GitHub 저장소 라이선스 안내](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)
+남은 검토는 실제 공개·배포할 파일의 출처와 권한, 직접·전이 의존성의 고지다. 타사 소스·바이너리·고지를 배포 버전과 대조하고, 참조 링크와 실제 복사한 코드를 구분해 기록한다.
 
 SeleniumBase reference runner는 개발·비교용 Python 의존성으로 구분한다. 런타임 NuGet 의존성에 포함하지 않는다. Chrome/ChromeDriver 바이너리를 소스나 NuGet에 추가하지 않는 현재 구조를 유지한다. 배포 대상으로 결정한 파일별 라이선스 조건은 별도로 충족해야 한다.
 
@@ -90,7 +85,7 @@ SeleniumBase reference runner는 개발·비교용 Python 의존성으로 구분
 
 ### 5.1 지원 범위 확정
 
-첫 소스 공개에는 Windows 미검증 상태를 표시할 수 있다. 첫 NuGet 시험판은 **지원한다고 명시할 각 runtime에서 실제 브라우저의 시작 → 이동 → disconnect → reconnect → 종료**를 검증한 뒤 배포하는 것을 권장한다. net481을 지원한다고 안내한다면 net10에서 같은 코드가 통과한 결과로 대체하지 않는다.
+현재 Windows 일반 시험 기록과 미검증 범위를 구분해 표시한다. 첫 NuGet 시험판은 **지원한다고 명시할 각 runtime에서 실제 브라우저의 시작 → 이동 → disconnect → reconnect → 종료**를 검증한 뒤 배포하는 것을 권장한다. net481을 지원한다고 안내한다면 net10에서 같은 코드가 통과한 결과로 대체하지 않는다.
 
 최소 확인 항목은 Chrome PID·profile 유지, 새 session, 오래된 참조 차단, 실제 DOM 동작, driver/Chrome/port/profile 정리다. 넓은 Stable/Stable-1 호환성이나 누수 안정성을 선언하려면 [테스트 계획](test-plan.md)의 해당 matrix와 stress 결과가 필요하다. recipe가 없는 실제 바이너리 패치는 미지원·미검증으로 명시한다.
 
@@ -111,7 +106,7 @@ release 후보에서 두 패키지를 pack한 다음 저장소 ProjectReference�
 
 ### 5.3 버전과 배포 흐름
 
-현재 미공개 0.2.0을 기준으로 첫 공개 버전을 **`0.2.0-alpha.1`**처럼 시작하는 방안을 제안한다. 이미 게시된 버전과 이름이 있다면 그 이력에 맞춰 조정한다. 두 패키지는 같은 release에서 같은 버전으로 관리한다. 0.x에서도 API·예외·동작의 호환성 변경을 CHANGELOG에 기록하고 1.0의 안정 계약을 명시한다.
+현재 `build/Version.props`에 설정된 첫 공개 후보 버전은 **`0.2.0-alpha.1`**이다. 이미 게시된 버전과 이름이 있다면 그 이력에 맞춰 조정한다. 두 패키지는 같은 release에서 같은 버전으로 관리한다. 0.x에서도 API·예외·동작의 호환성 변경을 CHANGELOG에 기록하고 1.0의 안정 계약을 명시한다.
 
 배포 흐름은 기준 commit 확정 → 공통·Windows 검증 → pack → 패키지 소비 시험 → release artifact 고정 → 유지관리자 release 승인 → NuGet 게시로 둔다. 승인 후에는 검증한 동일 artifact를 게시한다. 평소 PR 시험 job에는 게시 권한을 주지 않는다.
 
@@ -126,14 +121,12 @@ NuGet 게시 인증은 GitHub Actions와 연결하는 **Trusted Publishing/OIDC*
 | C. 안정판 | 전체 선언 matrix·stress·실패 복구 확인, API/예외/지원 정책 확정 | 1.0 release와 변경·마이그레이션 안내 |
 | D. 유지관리 | 의존성·Chrome 변경 감지, 이슈 분류, 검증 후 주기적 release | 지속적으로 갱신되는 지원·검증 기록 |
 
-## 7. 바로 시작할 작업 목록
+## 7. 남은 작업 순서
 
-1. **라이선스와 권리자 확정:** MIT 우선 검토, 특허 허여 조건이 중요하면 Apache-2.0 비교.
-2. **공개 준비 변경 묶음 작성:** LICENSE, 영어 README/한국어 안내, CONTRIBUTING, SECURITY, issue/PR template, CHANGELOG.
-3. **기존 변경 정리·이력 검사:** 최근 테스트 구현을 커밋하고 공개 기준 SHA를 정한다.
-4. **GitHub 운영 설정:** 필수 CI, 최소 권한, 의존성 갱신과 취약점 제보 경로를 준비한다.
-5. **Experimental 소스 공개:** NuGet 미게시·Windows 검증 상태를 정확히 표시한다.
-6. **Windows 실측과 패키징 작업:** 선언할 환경을 검증하고 두 패키지의 메타데이터·소비 시험을 완료한다.
-7. **NuGet alpha 배포:** 검증 기록과 알려진 문제를 첨부하고 초기 사용자 재현 사례를 받는다.
+라이선스·작성자·신고 연락처 반영과 문서 불일치 정리는 완료했다. 이후 순서는 다음과 같다.
 
-현재 우선순위는 새 기능 확대보다 **라이선스·첫 사용 경험·Windows 검증·배포 재현성**이다.
+1. **공개 이력과 출처 검토:** 전체 공개 대상 Git 이력의 비밀정보·개인정보·재배포 권한과 의존성 고지를 확인한다.
+2. **GitHub 운영 설정 확인:** 필수 CI, 브랜치 보호, environment 승인, self-hosted runner 격리를 확인한다.
+3. **공개·릴리스 기준 커밋 확정:** 변경을 정리하고 해당 SHA에서 공통 CI와 Windows Stress 검증을 수행한다. 추가 미검증 범위를 명시한다.
+4. **패키지 검증:** 두 패키지와 심볼의 release 검사, 별도 소비자 실행, Source Link를 확인한다.
+5. **게시 준비 및 실행:** NuGet ID 소유권·Trusted Publishing을 확인하고, 검증한 아티팩트를 게시한 뒤 깨끗한 환경에서 설치를 확인한다. 소스 공개와 패키지 게시는 각각의 완료 기준에 따라 진행한다.

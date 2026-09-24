@@ -6,11 +6,11 @@ No public repository or NuGet package has been created by this change.
 
 ## Complete before public source release
 
-1. Confirm the rights holder and license. Add the standard `LICENSE` text and fill
-   `Authors`, `RepositoryUrl`, and `PackageLicenseExpression` in `build/Package.props`.
-   Update the pending-license text in both READMEs, CONTRIBUTING and THIRD-PARTY-NOTICES.
-2. Set a monitored private reporting route in SECURITY and CODE_OF_CONDUCT.
-   Enable GitHub private vulnerability reporting where available.
+1. Preserve the confirmed MIT license and copyright holder/author `mete0rfish` in
+   `LICENSE`, `build/Package.props`, both READMEs, CONTRIBUTING and THIRD-PARTY-NOTICES.
+2. Keep the owner-confirmed private reporting email `sungwonyoon326@gmail.com` current
+   in SECURITY and CODE_OF_CONDUCT. Email is the documented reporting route; GitHub
+   private vulnerability reporting has not been verified as enabled.
 3. Review all published Git refs and working files for secrets, personal information,
    customer content and copied code. Review dependency notices for the actual distribution.
    A pattern scan is only one part of this review. Never publish profiles or raw credentials.
@@ -47,7 +47,7 @@ python3 scripts/check-packages.py .artifacts/packages
 
 The local check verifies identities, versions, target DLLs, Legacy's dependency on the
 matching core version, README/notice files and portable symbol packages. Local candidates
-are allowed while the license and public identity are pending. They must not be published.
+must not be published until all release checks and operational prerequisites are met.
 `python3 scripts/check-packages.py .artifacts/packages --release` additionally requires
 confirmed author/license/repository metadata, a commit SHA and the matching LICENSE file.
 

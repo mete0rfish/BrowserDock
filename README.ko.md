@@ -4,11 +4,13 @@
 
 [English](README.md) · [기여 안내](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [변경 기록](CHANGELOG.md)
 
-실험 단계 프로젝트이며 첫 공개 후보 버전은 `0.2.0-alpha.1`입니다. 현재 공개 NuGet 배포 전이며 라이선스와 권리자 확정을 기다리고 있습니다.
+실험 단계 프로젝트이며 첫 공개 후보 버전은 `0.2.0-alpha.1`입니다. 현재 공개 NuGet 배포 전이며 MIT 라이선스를 적용합니다.
 
 Windows 11 x64의 headed Chrome을 별도 프로세스로 관리하고, 독립 CDP 연결과 교체 가능한 Selenium WebDriver attachment를 제공하는 비공식 .NET 라이브러리입니다.
 
-**현재 상태:** MVP 구현 및 자동화 시험 코드가 있습니다. Windows 실제 브라우저 수용 시험은 이 개발 환경에서 실행하지 않았습니다. 검증 상태와 제한은 [구현 및 검증 기록](docs/implementation.md)을 확인하세요. 검증된 ChromeDriver 패치 recipe는 아직 포함하지 않습니다.
+**현재 검증 기록(2026-09-24):** Windows 11 x64와 Chrome for Testing/ChromeDriver `154.0.8037.57`에서 일반 시험 **258건 통과**, 실패·건너뜀 0건입니다. Core net8.0/net10.0은 각각 81건, Legacy net481/net8.0/net10.0은 각각 32건이며, 기록된 솔루션 빌드는 경고·오류 0건입니다. 기존 실행 기록을 요약한 것으로, 현재 checkout이나 릴리스 후보를 새로 검증한 결과는 아닙니다.
+
+**해당 실행의 미검증 범위:** Stress, 권한이 필요한 reparse-point 시험, Stable-1, SeleniumBase Python 브라우저 비교, 실제 바이너리 패치 recipe. 검증 상태와 제한은 [구현 및 검증 기록](docs/implementation.md)과 [지원 정책](docs/support.md)을 확인하세요.
 
 ## 사용
 
@@ -93,4 +95,4 @@ Windows 실제 시험:
 
 실제 Chrome 및 ChromeDriver는 NuGet에 번들하지 않습니다. 외부 Chrome attach, keep-alive 소유권 이전, headless, GUI 입력, 자동 다운로드는 후속 범위입니다. 특정 탐지 사이트, WAF 또는 CAPTCHA 통과를 보장하거나 release gate로 사용하지 않습니다.
 
-공개 배포용 프로젝트 라이선스는 아직 결정하지 않았습니다. 의존성과 구현 출처는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 기록합니다.
+BrowserDock은 [MIT 라이선스](LICENSE)를 적용합니다. Copyright (c) 2026 mete0rfish. 의존성과 구현 출처는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 기록합니다.
