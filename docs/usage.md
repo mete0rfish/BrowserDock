@@ -4,7 +4,7 @@
 
 [Overview](../README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Changelog](../CHANGELOG.md)
 
-BrowserDock is experimental. The first public candidate is `0.2.0-alpha.1`; no public NuGet release has been published. The project uses the MIT license.
+BrowserDock is experimental. The source release version is `0.2.0`; no public NuGet release has been published. The project uses the MIT license.
 
 This unofficial .NET library manages headed Chrome as a separate process on Windows 11 x64, with an independent CDP connection and replaceable Selenium WebDriver attachments.
 

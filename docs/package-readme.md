@@ -1,4 +1,4 @@
-# BrowserDock — experimental alpha
+# BrowserDock — experimental
 
 **Keep the browser. Swap the driver.**
 
@@ -33,7 +33,7 @@ Disposing the browser stops its owned processes; use dedicated profiles.
 Legacy consumers use Task methods and explicit disposal; see the package project page
 for the C# 7.3 sample, support matrix and verification record.
 
-APIs may change during alpha. Headless mode, GUI input, automatic binary downloads
+APIs may change during 0.x. Headless mode, GUI input, automatic binary downloads
 and verified binary patch recipes are outside the current scope. Patching is disabled
 by default. Common tests alone do not establish real Windows browser compatibility.
 
