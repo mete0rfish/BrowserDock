@@ -13,7 +13,7 @@ dotnet pack src/BrowserDock -c Release -o .artifacts/packages
 dotnet pack src/BrowserDock.Legacy -c Release -o .artifacts/packages
 ```
 
-Add this directory as a NuGet source in Visual Studio and install `BrowserDock.Legacy` 0.2.0-alpha.1. Keep nuget.org enabled to restore dependencies. Use **PackageReference** in existing projects and build with Visual Studio/MSBuild on Windows. Installation through `packages.config` is outside the verified scope.
+Add this directory as a NuGet source in Visual Studio and install `BrowserDock.Legacy` 0.2.0. Keep nuget.org enabled to restore dependencies. Use **PackageReference** in existing projects and build with Visual Studio/MSBuild on Windows. Installation through `packages.config` is outside the verified scope.
 
 Apply the following settings to the executable project's `.csproj`. Use `TargetFramework=net481` for SDK-style projects or `TargetFrameworkVersion=v4.8.1` for classic projects.
 
@@ -26,7 +26,7 @@ Apply the following settings to the executable project's `.csproj`. Use `TargetF
   <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
 </PropertyGroup>
 <ItemGroup>
-  <PackageReference Include="BrowserDock.Legacy" Version="0.2.0-alpha.1" />
+  <PackageReference Include="BrowserDock.Legacy" Version="0.2.0" />
 </ItemGroup>
 ```
 

@@ -1,6 +1,6 @@
 # Support and compatibility
 
-BrowserDock is experimental. Alpha releases may change public APIs, exceptions, and behavior; see the changelog. No commercial support or response-time SLA is promised.
+BrowserDock is experimental. Releases during 0.x may change public APIs, exceptions, and behavior; see the changelog. No commercial support or response-time SLA is promised.
 
 | Area | Policy |
 |---|---|

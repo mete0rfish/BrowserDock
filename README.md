@@ -10,7 +10,7 @@ Keep Chrome alive while disconnecting WebDriver, then create a new session again
 
 ## Status and requirements
 
-No public NuGet release has been published by this project yet. Build from source for evaluation. APIs and behavior may change during the alpha series.
+No public NuGet release has been published by this project yet. Build from source for evaluation. The source release version is `0.2.0`. APIs and behavior may change during 0.x; breaking changes are documented in the changelog.
 
 | Requirement | Current scope |
 |---|---|

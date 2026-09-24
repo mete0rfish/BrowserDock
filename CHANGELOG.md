@@ -1,14 +1,16 @@
 # Changelog
 
-Public preparation adds English/Korean entry points, contribution/security policies,
-issue forms, dependency update configuration, portable symbols, and a gated NuGet
-candidate/release workflow. Public identity and licensing remain pending owner confirmation.
-
 Public changes are recorded here. Breaking changes during 0.x are described explicitly.
 
-## Unreleased — 0.2.0-alpha.1
+## 0.2.0 — 2026-09-25
+
+First non-prerelease GitHub source release in the private repository. No NuGet
+packages are published. This version does not establish new Windows acceptance
+evidence or broaden the verified support matrix.
 
 ### Added
+
+- Owner-confirmed MIT license, reporting contacts, English documentation, and required secret scanning.
 
 - Independent Chrome ownership, CDP control, and replaceable WebDriver sessions.
 - Attachment epochs, guarded leases, and explicit element reacquisition.
@@ -17,6 +19,8 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 - Contribution/security documents, issue templates, and package/release preparation.
 
 ### Changed
+
+- Promoted the shared source/package version from `0.2.0-alpha.1` to `0.2.0`.
 
 - Updated Logging.Abstractions and Microsoft.Bcl.AsyncInterfaces together to 10.0.12
   to avoid the Framework package downgrade error.

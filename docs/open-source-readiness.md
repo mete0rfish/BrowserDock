@@ -29,7 +29,7 @@ The 2026-09-24 [publication audit and actions](publication-audit.md) applied mai
 | Documentation | English overview, usage, design, verification, and Framework guides; 258-pass Windows record included | Update against the release candidate commit |
 | Common tests | 2026-09-24 record: Core net8/net10 passed 43 each; Legacy net481/net8/net10 passed 22 each; 152 total | Recheck CI for the publication commit |
 | Actual browser | Windows 11 x64, Chrome/Driver 154.0.8037.57: 258 normal tests passed, zero failures/skips | Stress on the same candidate; identify unverified Stable-1, Python comparisons, privileged tests, and real recipes |
-| Packages | Shared 0.2.0-alpha.1 version; author, MIT, repository, README, symbols configured | Inspect actual packages, consumer execution, and public-commit Source Link |
+| Packages | Shared 0.2.0 version; author, MIT, repository, README, symbols configured | Inspect actual packages, consumer execution, and public-commit Source Link |
 | Contribution/security operations | Policies/templates and private reporting email present | GitHub private vulnerability reporting remains unverified |
 | CI | Common, Windows, release, and secret workflows; SHA pins, minimal permissions, Dependabot | Required checks/protection applied; environment approval support and runner isolation remain pending |
 | Publication baseline | Local changes and execution records exist | Review public history, organize commits, and pin the release SHA |
@@ -106,7 +106,7 @@ Pack both candidates and install them in consumers without repository ProjectRef
 
 ### 5.3 Version and release flow
 
-The first public candidate configured in `build/Version.props` is **`0.2.0-alpha.1`**. Reconcile with any existing publication history. Both packages share a release version. Record compatibility changes even during 0.x and define stable 1.0 contracts.
+The source release version configured in `build/Version.props` is **`0.2.0`**. Reconcile with any existing publication history. Both packages share a release version. Record compatibility changes even during 0.x and define stable 1.0 contracts.
 
 Follow: pin commit → common/Windows verification → pack → consumer tests → freeze artifacts → maintainer release approval → NuGet publication. Publish the same verified artifacts after approval. Normal PR jobs must not have publication permissions.
 

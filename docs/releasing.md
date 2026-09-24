@@ -1,8 +1,17 @@
 # Release procedure
 
-The first candidate is `0.2.0-alpha.1`. The source packages share `build/Version.props`;
+The current source release version is `0.2.0`. The source packages share `build/Version.props`;
 the classic package consumer reads the same version through `Directory.Build.props`.
 No public repository or NuGet package has been created by this change.
+
+## Private GitHub source releases
+
+The `v0.2.0` GitHub Release is a source-only release in the private repository.
+It does not publish NuGet packages or enable the package publication gate.
+For subsequent source releases, update the shared version, changelog, and current
+usage examples in a PR; require all checks, merge, and create the version tag and
+GitHub Release at that exact merged commit. Include known verification gaps in
+the release notes. Public source and package releases still require the steps below.
 
 ## Complete before public source release
 
