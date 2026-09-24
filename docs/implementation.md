@@ -141,3 +141,39 @@ ChromeDriver detach/DELETE-session 조합별 비교와 navigation/reconnect 취�
 로그는 기본적으로 민감 payload를 수집하지 않는다. 사용자 logging sink가 영구적으로 반환하지 않으면 해당 외부 코드의 강제 중단은 보장할 수 없고 제한 시간 뒤 cleanup failure를 보고한다.
 
 공개 배포 전 프로젝트 라이선스를 확정하고 의존성 notices를 검토한다. 명세의 날짜 기반 정책에 따라 .NET 8 지원 종료 이후 신규 release의 TFM·CI matrix를 갱신한다.
+
+## 2026-09-24 Windows 11 연결 회귀 검증
+
+Windows 11 x64 build 26100, PowerShell 7.6.6, .NET SDK 10.0.401, .NET runtime 8.0.31/10.0.12, Framework Release 533320에서 Chrome for Testing/ChromeDriver 154.0.8037.57을 사용했다.
+
+- ChromeDriver의 `::` 리스너를 IPv4 전용 포트 검사에서 놓치는 문제를 수정했다. 드라이버 준비 확인은 IPv4 loopback HTTP 응답과 PID·포트 소유권을 함께 요구한다. Chrome CDP의 엄격한 loopback 검사는 유지한다. IPv6 레이아웃은 [Windows MIB_TCP6ROW_OWNER_PID](https://learn.microsoft.com/en-us/windows/win32/api/tcpmib/ns-tcpmib-mib_tcp6row_owner_pid)를 따른다.
+- 외부 Chrome 연결 시 거부되던 `detach` capability를 생략했다. 공통 프로토콜 시험은 제품과 동일한 옵션 팩터리를 사용해 debugger address, detach 생략, DELETE-session 차단을 검증한다.
+- 포트 종료 확인의 대기 상한을 1초에서 5초로 변경했다. 임의의 소켓 오류 대신 `ConnectionRefused`를 요구하며 timeout은 여전히 실패다.
+- 솔루션 Debug 빌드: 경고 0, 오류 0. 리스너 회귀 시험: net8/net10 각각 4개 통과. Chrome 연결·30초 분리 유지·재연결 핵심 시험: net10 단독 실행과 net8 전체 실행에서 통과.
+- 공통 시험: Core net8/net10 각각 43개, Legacy net481/net8/net10 각각 22개, 총 152개 통과.
+- 일반 Windows runner의 첫 대상인 Core net8: 72개 통과, 5개 실패, skip 0. 실패는 모두 `StartAsync`의 `AmbiguousTarget`이며 `SB-04`, cleanup cancellation, detach 비교 3개 사례에서 발생했다. 이번 포트·옵션 수정으로 전체 Windows 수용 시험이 통과한 것은 아니다.
+- runner가 첫 실패 TFM에서 중단했으므로 Core net10 전체와 Legacy 브라우저 matrix는 미실행이다. Stress, SeleniumBase Python 비교, 실제 패치 recipe 검증도 미실행이다.
+
+생성 결과는 `.artifacts/windows-validation/20260924-020520-282/`의 `smoke.trx`, `listeners-*.trx`, `normal/net8.0.trx`, `normal/fixture.json` 및 `.artifacts/common-validation/20260924-020800-228/`에 보관했다. 첫 실패 및 중간 실패 결과도 각 실행 시각 디렉터리에 남겼다.
+
+### 초기 페이지 생성 경쟁 조건 수정 및 재검증
+
+위 실행에서 남았던 `AmbiguousTarget` 실패를 후속 진단으로 재현했다. Chrome의 첫 페이지가 나타나기 전 빈 목록을 받은 초기화 코드가 `Target.createTarget`을 호출하고, Chrome의 원래 `about:blank`도 나타나면서 페이지가 두 개가 됐다. 두 브라우저 연속 시작 진단 15회 중 3회에서 이 순서를 확인했다.
+
+초기화 시 대체 탭 생성 대신 기존 `CdpConnect` 제한 시간과 취소 토큰 안에서 첫 page target을 기다리도록 수정했다. 실제 여러 페이지가 있으면 자동 선택하지 않으며, CDP 복구 시 기존 controlled target을 유지한다. registry의 단일 페이지 확인과 선택은 동일한 lock 안에서 수행한다.
+
+회귀 시험은 첫 1회/3회 조회에 page가 없는 경우, 대기 중 취소, 실제 여러 페이지가 있는 경우를 검증한다. 수정 전에는 지연 생성 사례 2개가 실패했고 수정 후 4개 모두 통과했다. 이전 실패와 관련된 9개 시나리오도 두 차례 연속 전부 통과했다.
+
+동일한 Windows 11 및 Chrome/ChromeDriver 154.0.8037.57 환경에서 `scripts/test-windows.ps1`의 일반 실행을 완료했다.
+
+| 시험 | 런타임 | 통과 | 실패 | 건너뜀 |
+|---|---|---:|---:|---:|
+| Core | net8.0 | 81 | 0 | 0 |
+| Core | net10.0 | 81 | 0 | 0 |
+| Legacy | net481 | 32 | 0 | 0 |
+| Legacy | net8.0 | 32 | 0 | 0 |
+| Legacy | net10.0 | 32 | 0 | 0 |
+
+총 258개가 통과했으며 모든 TRX는 runner의 필수 클래스·전체 실행·통과 검사도 통과했다. 솔루션 빌드는 경고 0, 오류 0이었다. 결과는 `.artifacts/startup-validation/20260924-022344-076/`에 있으며 `round-1.trx`, `round-2.trx`는 반복 검증, `normal/*.trx`와 `normal/fixture.json`은 전체 일반 시험과 환경 기록이다. 수정 전후 프로토콜 회귀 결과는 `.artifacts/startup-race/before.trx`, `after.trx`에 보관했다.
+
+이번 실행에는 Stress, 권한이 필요한 reparse-point 시험, Stable-1, SeleniumBase Python 비교, 실제 바이너리 패치 recipe 검증은 포함하지 않았다. 이 결과는 해당 항목의 release 승인까지 의미하지 않는다.

@@ -291,4 +291,35 @@ internal static class BrowserHosting
         }
         finally { Marshal.FreeHGlobal(buffer); }
     }
+
+    public static bool OwnsDriverListener(int pid, int port)
+    {
+        if (OwnsLoopbackListener(pid, port)) return true;
+        if (!Platform.IsWindows) return false;
+        // ChromeDriver can bind a dual-stack IPv6 wildcard socket even with
+        // --allowed-ips=127.0.0.1. The caller must also probe readiness over IPv4
+        // loopback. Keep the Chrome CDP listener's stricter check unchanged.
+        const int ipv6 = 23, ownerPidListeners = 3;
+        var size = 0;
+        _ = GetExtendedTcpTable(IntPtr.Zero, ref size, false, ipv6, ownerPidListeners, 0);
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (GetExtendedTcpTable(buffer, ref size, false, ipv6, ownerPidListeners, 0) != 0) return false;
+            var count = Marshal.ReadInt32(buffer);
+            // MIB_TCP6ROW_OWNER_PID: 56 bytes; port at 20, state at 48, PID at 52.
+            for (var row = 0; row < count; row++)
+            {
+                var offset = 4 + row * 56;
+                var networkPort = Marshal.ReadInt32(buffer, offset + 20);
+                var localPort = ((networkPort & 0xff) << 8) | ((networkPort >> 8) & 0xff);
+                if (localPort != port || Marshal.ReadInt32(buffer, offset + 52) != pid) continue;
+                var wildcard = true;
+                for (var i = 0; i < 16; i++) wildcard &= Marshal.ReadByte(buffer, offset + i) == 0;
+                if (wildcard) return true;
+            }
+            return false;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
 }

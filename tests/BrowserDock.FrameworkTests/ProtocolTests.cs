@@ -29,7 +29,7 @@ public sealed class ProtocolTests
     {
         using var server = await FixtureServer.StartAsync();
         using var executor = new DetachAwareCommandExecutor(new LoopbackExecutor(new Uri(server.Url, "/wd/"), TimeSpan.FromSeconds(5)));
-        var options = new ChromeOptions { DebuggerAddress = "127.0.0.1:12345", LeaveBrowserRunning = true };
+        var options = Attachment.CreateOptions(new Uri("ws://127.0.0.1:12345/devtools/browser/fixture"));
         using var driver = await Task.Run(() => new RemoteWebDriver(executor, options.ToCapabilities()));
         Assert.That(driver.FindElement(By.Id("button")).Text, Is.EqualTo("fixture-value"));
         executor.Detach();
@@ -39,7 +39,7 @@ public sealed class ProtocolTests
         Assert.That(requests.Any(x => x.GetProperty("method").GetString() == "DELETE"), Is.False);
         Assert.That(requests.Any(x => x.GetProperty("path").GetString()!.EndsWith("/element/element-fixture/text", StringComparison.Ordinal)), Is.True);
         using var creation = JsonDocument.Parse(requests[0].GetProperty("body").GetString()!);
-        Assert.That(creation.RootElement.ToString(), Does.Contain("127.0.0.1:12345").And.Contain("\"detach\":true"));
+        Assert.That(creation.RootElement.ToString(), Does.Contain("127.0.0.1:12345").And.Not.Contain("\"detach\""));
     }
 
     [Test]
