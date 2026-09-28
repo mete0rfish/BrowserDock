@@ -1,9 +1,10 @@
 # BrowserDock architecture
 
-- Status: pre-implementation architecture baseline
+- Status: Core architecture baseline with planned phased compatibility boundaries
 - Governing specification: [spec.md](spec.md)
 - Initial platform: Windows 11 x64, headed Chrome, supported .NET LTS
 - Scope: structural and responsibility baseline. Actual implementation and verification are recorded in [implementation.md](implementation.md).
+- Selected compatibility contracts and current gaps: [SeleniumBase matrix](seleniumbase-compatibility.md), established under [#25](https://github.com/mete0rfish/BrowserDock/issues/25).
 
 ## 1. Purpose
 
@@ -12,6 +13,8 @@ Define the components, their state/resource ownership, and their cooperation dur
 [spec.md](spec.md) governs externally observable requirements and acceptance criteria. This document maps those requirements to an implementable structure. Resolve conflicts by updating both documents in the same change rather than choosing an undocumented interpretation.
 
 ## 2. Overview
+
+Delivery follows the same scope as specification §7.3 and the matrix: **Phase 1** adds the opt-in Driver/UC facade, launch/script profile and verified driver recipes, high-level WebDriver interactions, and separately packaged general native input; **Phase 2** adds driver-free startup and high-level CDP interactions. Automatic binary provisioning, additional platforms/browsers, recorder/reporting and test-runner integrations remain later work. These planned boundaries do not imply implemented or executed compatibility.
 
 BrowserDock separates Chrome, CDP, and WebDriver lifetimes in a hybrid architecture.
 
@@ -88,11 +91,13 @@ Do not depend on typed Selenium DevTools APIs, internal Selenium Manager paths, 
 
 ### 5.1 Public API
 
-`Browser` is the only lifecycle entry point for an instance: state, navigation, target selection, WebDriver leases, advanced CDP, and shutdown.
+`Browser` owns the single lifecycle for an instance: state, navigation, target selection, WebDriver leases, advanced CDP, and shutdown. Planned convenience facades delegate to this owner rather than maintaining independent state.
 
 `WebDriverLease` exposes the guarded `IBrowserCommands` facade, not raw Selenium objects. `ElementRef` holds a locator and lifetime metadata instead of exposing a raw element.
 
 Public models minimize Selenium type exposure so package updates and attachment replacement do not directly contaminate application state.
+
+The matrix reserves `UcSession` for the opt-in compatibility facade, `CdpPage` for the Phase 2 high-level CDP surface, and `NativeInput` for the optional input capability. These are contract names, not implemented public types. Existing default Core methods remain unchanged. `UcSession` borrows the Browser and carries only scoped target/frame context and policy; it cannot redefine final disposal. Legacy adapts the same operations to Task-based C# 7.3 entry points and shares state, cancellation, errors and reference rules.
 
 ### 5.2 Lifecycle Coordinator
 
@@ -106,6 +111,10 @@ The coordinator inside `Browser` owns:
 - Reverse-order final cleanup.
 
 It calls lower-level ports instead of directly handling concrete processes, sockets, or Selenium implementations. Components do not independently mutate global state.
+
+Compatibility sequences execute as one admitted operation with one overall deadline, including time queued at the gate. Implement them through internal coordinator stages; do not compose public gate-taking methods while holding the same gate. `ConnectAsync` attaches from healthy `CdpOnly`; `ReconnectAsync` additionally stops an existing attachment and waits `DisconnectedDuration` before attaching. That minimum disconnected interval is independent of `OperationTimeout` and Core's post-navigation `ReconnectDelay`.
+
+For UC helpers, observe the target and initiate navigation before disconnect, wait the duration, and attach before any optional page-completion wait. Report initiation separately from an observed milestone. Do not reuse the existing Core Detached pipeline when its disconnect-before-navigation/load-before-attach ordering contradicts a matrix row. Cancellation does not replay navigation or restore an old attachment; report actual state and possible browser advancement after bounded cleanup.
 
 ### 5.3 Hosting
 
@@ -128,6 +137,8 @@ CDP has browser and target levels:
 Send `Browser.*` and `Target.*` through the browser connection. Send `Page.*` and `Runtime.*` with `CdpTargetSession.sessionId`. After transport recovery, enumerate targets, reattach the controlled target, and register scripts again.
 
 `TargetKey` is opaque to callers. When its CDP target disappears, it becomes terminally stale and must never be reassigned to another tab.
+
+Phase 2 adds guarded CDP page/element operations. Bind references to target, document/execution-context generation and protocol identity, not WebDriver epoch alone. Context loss, full navigation, target closure and transport recovery invalidate them and release retained objects/subscriptions. Same-document changes preserve only still-valid nodes. Page mutations preserve ordering; no high-level CDP operation implicitly attaches WebDriver. Initial explicit frame support and exclusions are defined in the matrix.
 
 ### 5.5 WebDriver Attachment
 
@@ -154,11 +165,19 @@ The public `RemoteWebDriver` path supports core W3C commands. Chrome-specific Se
 
 Patching defaults to disabled. Lifecycle/CDP components know only the resulting executable path, not patch internals.
 
+Phase 1 UC configuration composes explicit launch/script/recipe policy without changing that default. Snapshot it once, reject conflicting or unsupported requests, and record exact recipe/script versions and executed artifact hashes. Missing real-binary evidence cannot be reported as a working UC profile. Copy/adaptation provenance follows the matrix and `THIRD-PARTY-NOTICES.md`.
+
 ### 5.7 Diagnostics
 
 Every operation has a correlation ID. Structured logs and `BrowserHealthSnapshot` record transitions, PIDs, endpoint discovery, target/session changes, generation/epoch, timeouts, and cleanup.
 
 Default logs omit cookies, storage, page source, script results, and full URLs including queries/fragments. Async boundaries and bounded buffers isolate user callbacks/log sinks from lifecycle execution.
+
+### 5.8 High-level interactions and optional native input (planned)
+
+Phase 1 WebDriver interactions add bounded observation/actionability waits over guarded Core commands. The facade captures target/frame context, distinguishes DOM attributes from live properties/value, and retries only safe observations before an action. Navigation, target change and disconnect reset its implicit frame context. Core retains explicit `FramePath` semantics. Never silently fall back from W3C click to JavaScript or native input, or repeat a dispatched action after an uncertain result.
+
+`BrowserDock.NativeInput` is a separate optional Phase 1 package with no Python/PyAutoGUI dependency. It owns desktop input serialization, owned-window/focus verification, explicit coordinate/DPI conversion and pressed-key/button cleanup. It works in attached or disconnected state without changing attachment. Core does not depend on it; missing capability fails explicitly. Native input does not share DOM/CDP element semantics or provide CAPTCHA-specific helpers.
 
 ## 6. Dependency direction
 
@@ -226,6 +245,8 @@ Do not expose a new state merely because one component succeeded. The coordinato
 ## 8. Main execution flows
 
 ### 8.1 Startup
+
+The steps below are the default attached startup. Phase 2 adds an explicit CDP-only initial mode: validate Chrome/profile/CDP, launch and bind the controlled target, and return `CdpOnly` with generation zero. It skips driver path/version resolution, patch preparation, driver launch, executor and W3C session creation entirely. Only a later explicit attachment with driver configuration creates generation one against the same owned Chrome/profile. Cleanup/rollback remain identical ownership obligations; the package need not remove its Selenium dependency.
 
 1. Validate options, OS/runtime support, binary versions, and profile ownership.
 2. Prepare a verified patch-cache copy if requested.
@@ -429,7 +450,9 @@ tests/
   BrowserDock.LeakTests/
 ```
 
-Packages need not map one-to-one to projects. Reserve `BrowserDock.NativeInput` for later. Implement optional `BrowserDock.Legacy` for C# 7.3/Framework 4.8.1. Core and Legacy both target `net481;net8.0;net10.0`; Legacy only converts options/results/exceptions through a Task facade. Keep the Hosting/CDP/WebDriver engine and state machine in Core. Centralize Framework compatibility in `Compatibility.cs` and keep compiler helper types internal. See the [Framework guide](framework481.md).
+Packages need not map one-to-one to projects. `BrowserDock.NativeInput` is planned as a separate optional Phase 1 package. `BrowserDock.Legacy` provides the C# 7.3/Framework 4.8.1 facade. Core and Legacy both target `net481;net8.0;net10.0`; Legacy converts options/results/exceptions through a Task facade. Keep the Hosting/CDP/WebDriver engine and state machine in Core. Centralize Framework compatibility in `Compatibility.cs` and keep compiler helper types internal. See the [Framework guide](framework481.md).
+
+The baseline execution matrix is Core net8.0/net10.0 and Legacy net481/net8.0/net10.0 on Windows 11 x64, interactive headed Chrome. [support.md](support.md) governs runtime support in future releases. Planned functionality must reach both surfaces or document an explicit limitation in its matrix row; build success alone does not establish runtime support.
 
 ## 16. Test architecture
 
@@ -465,6 +488,10 @@ Primary release gates:
 
 Use the numbers and repetition counts in [specification section 20](spec.md#20-verifiable-acceptance-criteria).
 
+### 16.4 Compatibility evidence
+
+The matrix's `COMP-*` IDs are planned acceptance contracts tracked by #29–#36, not existing passing tests. The four SB-01–04 scenarios observe limited page/session behavior. Add stage ordering, duration, target/context identity, returned state, cancellation and reference invalidation evidence for the selected APIs; CdpOnly navigation alone does not prove Pure CDP or high-level element support. Classify each row as Equivalent, Intentional deviation, Not implemented or Execution unverified, and tie equivalence to pinned source and retained same-candidate results. Site-specific Cloudflare/WAF/CAPTCHA outcomes are never gates.
+
 ## 17. Architecture decisions
 
 | Decision | Choice | Reason | Revisit when |
@@ -477,7 +504,11 @@ Use the numbers and repetition counts in [specification section 20](spec.md#20-v
 | Driver lifecycle | Own child process | Control PID/readiness/cancellation/cleanup | Public Selenium service APIs provide equivalent control |
 | Binary patch | Off by default, separate strategy | Isolate version risk | Stable official alternative or feature removal |
 | External Chrome attach | Outside MVP | Unclear process/profile ownership and security | Separate API and acceptance tests are designed |
-| Native input | Later separate package | Desktop/DPI/RDP dependence | Clear demand and dedicated CI |
+| Native input | Optional separate Phase 1 package | Desktop/DPI/RDP dependence; Core remains independent | Expanded capability matrix under #33 |
+| Compatibility facade | Opt-in, one Core coordinator/deadline | Preserve default behavior while defining upstream call semantics | Matrix contract changes with tests |
+| Pure CDP | Explicit Phase 2 startup without driver stages | Disconnection after attached startup is insufficient | #34 process/session evidence |
+| HTTP preflight/heuristics | Excluded from Core and selected facade | Separate-client state and duplicate requests; explicit navigation policy | Separately scoped opt-in extension |
+| Disposal | Final owned-resource cleanup | .NET lifetime semantics; never Python reconnect-on-context-exit | Separate ownership-transfer proposal only |
 
 ## 18. Pre-implementation validation questions
 

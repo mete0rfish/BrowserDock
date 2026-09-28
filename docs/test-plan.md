@@ -14,13 +14,15 @@ The steps below preserve the original goals and additional verification criteria
 
 ## 1. Comparison scope and evaluation
 
+The [phased compatibility matrix](seleniumbase-compatibility.md) now defines the selected Driver/UC and CDP contracts under #25. Its `COMP-*` identifiers are planned tests with tracked implementation gaps; this historical test plan and SB-01–04 do not establish complete parity. Phase 1 includes optional general native input; Phase 2 adds driver-free startup and high-level CDP elements. #36 adds same-candidate differential evidence for those rows.
+
 BrowserDock is an independent .NET implementation inspired by SeleniumBase UC Mode, not an identical framework/API. Compare Chrome-preserving detach/reattach, navigation, and state preservation. Final product acceptance follows [AC-01–10](spec.md#20-verifiable-acceptance-criteria).
 
 The [official UC guide](https://seleniumbase.io/help_docs/uc_mode/) describes starting Chrome before attaching ChromeDriver, disconnecting as needed, and `disconnect()`, `connect()`, and `uc_open_with_reconnect()`. Use those behaviors as scenario starting points.
 
 SeleniumBase examples provide pytest execution, parameterization, failure logs, and reports. Here NUnit/TRX serve those operational purposes; Python is only the comparison tool. Some upstream examples intentionally fail, so the entire examples directory's pass rate is not a product criterion. See the [official examples guide](https://seleniumbase.io/examples/ReadMe/).
 
-| Scenario | SeleniumBase path | BrowserDock equivalent and observations |
+| Scenario | SeleniumBase path | Related BrowserDock behavior and observations (not an equivalence claim) |
 |---|---|---|
 | Normal navigation/DOM | UC `default_get()`, find/click/type | `NavigateAsync(Standard)` and lease commands; final URL/text/input |
 | Disconnect, keep browser | `driver.disconnect()` | `DisconnectWebDriverAsync()`; same Chrome alive, driver stopped, CDP responds |
@@ -38,7 +40,7 @@ Test the following intentional differences against BrowserDock's own contract:
 - Old leases/elements fail locally with `StaleAttachmentException` after disconnect starts. Python object reuse need not match.
 - Ambiguous tabs produce `AmbiguousTargetException` and require selection, rather than choosing the last tab.
 - Use `TargetPolicy.ReplaceControlled` separately when comparing new-tab UC navigation. Distinguish same-document preservation from document-replacing navigation.
-- GUI input, CAPTCHA handling, headless mode, automatic driver downloads, and site-specific HTTP prechecks are outside the MVP. External-site observations are reference-only under AC-10.
+- General native input was outside the original Core MVP and is now selected for Phase 1 with separate desktop tests under #33. CAPTCHA handling, headless parity, automatic driver downloads, and site-specific HTTP prechecks remain outside the selected compatibility scope. External-site observations are reference-only under AC-10.
 
 The original reference SHA is `4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80`. During the initial research, refetching that fixed source on the web failed, so existing specification evidence and current official documentation were kept distinct. Before building the harness, verify checkout availability and actual implementation. If unavailable, select an executable release/SHA and document why. See [reference repositories](spec.md#21-repositories-analyzed). Subsequent source verification is recorded above.
 
