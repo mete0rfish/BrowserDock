@@ -5,7 +5,13 @@ using BrowserDock.Hosting;
 
 namespace BrowserDock.Patching;
 
+/// <summary>Caller-owned pattern data. Keep both byte arrays unchanged while startup uses the strategy.</summary>
 public sealed record PatchPattern(string Id, byte[] Search, byte[] Replacement, int ExpectedCount);
+/// <summary>
+/// Caller-owned patch behavior. Startup copies the strategy collection, not its implementations.
+/// Keep RecipeId, Supports behavior, Patterns and all pattern bytes stable until StartAsync completes
+/// (success, failure or cancellation). Implementations shared by concurrent starts must support concurrent reads.
+/// </summary>
 public interface IDriverPatchStrategy
 {
     string RecipeId { get; }

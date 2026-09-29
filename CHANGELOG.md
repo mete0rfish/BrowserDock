@@ -4,6 +4,13 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ## Unreleased
 
+### Fixed
+
+- Capture and validate one startup options snapshot and use it for Chrome launch,
+  driver preparation, CDP scripts and subsequent operations (#26). Caller list
+  mutations after capture no longer alter the running configuration. Custom patch
+  strategies and loggers remain caller-owned objects with documented ownership.
+
 ### Added
 
 - SeleniumBase Driver/UC and CDP compatibility contract and per-API matrix for
