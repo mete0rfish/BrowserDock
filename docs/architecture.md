@@ -1,7 +1,8 @@
 # BrowserDock architecture
 
-- Status: pre-implementation architecture baseline
+- Status: implemented Core structure with planned compatibility layers (2026-09-28)
 - Governing specification: [spec.md](spec.md)
+- Per-API compatibility contract: [seleniumbase-compatibility.md](seleniumbase-compatibility.md)
 - Initial platform: Windows 11 x64, headed Chrome, supported .NET LTS
 - Scope: structural and responsibility baseline. Actual implementation and verification are recorded in [implementation.md](implementation.md).
 
@@ -83,6 +84,25 @@ Attaching to caller-launched Chrome is outside the MVP. Default Chrome profiles 
 - Windows process, file-locking, and process-tree facilities.
 
 Do not depend on typed Selenium DevTools APIs, internal Selenium Manager paths, or private service APIs.
+
+### 4.3 Phased compatibility layers
+
+The [specification scope](spec.md#182-selected-seleniumbase-port) and [compatibility matrix](seleniumbase-compatibility.md) define the selected port under #24/#25. The following components are planned responsibilities, not new packages or APIs already implemented.
+
+| Layer | Responsibility and implementation boundary |
+|---|---|
+| Prerequisite Core fixes (#26–#28) | One effective startup snapshot; bounded command admission/failure recovery with cancellation distinguished from timeout; reject ineffective navigation options before side effects. The existing gaps must be fixed before the facade depends on those guarantees. |
+| Phase 1 UC facade (#29) | Compose owned lifecycle/navigation operations. Resolve targets explicitly and return observable state/outcome metadata. Keep minimum disconnected duration separate from deadlines and Core's existing post-navigation delay. Never map Python context exit to Browser disposal. |
+| Phase 1 UC profile/recipes (#30–#31) | Produce a versioned, explicit opt-in launch/script configuration and verified cache-copy recipe selection. Validate caller conflicts before startup; record effective settings and provenance. Keep ordinary startup defaults unchanged. |
+| Phase 1 interactions (#32) | Build bounded find/wait/click/type/read contracts on guarded commands. Carry explicit target/frame context; distinguish text, literal attributes and live values. Current Core find restores its own frame path, so ambient frame selection cannot be assumed. |
+| Phase 1 native input (#33) | Optional separate Windows package, outside DOM/CDP actions. Validate owned foreground window, desktop/session and DPI; serialize input with bounded waits. No hidden reconnect, automatic fallback or CAPTCHA-specific helpers. |
+| Phase 2 Pure CDP startup (#34) | Split browser/profile/CDP startup from optional driver preparation and attachment. The Pure CDP path must not validate a driver binary or create a driver/session transiently. Keep existing startup behavior for ordinary callers. |
+| Phase 2 CDP interactions (#35) | Operate on explicit target/frame sessions without WebDriver. Own CDP element identity by target, document/execution context and transport, independently of attachment epochs. Invalidate on navigation, target closure and transport recovery. |
+| Shared verification (#36) | Link row-specific regression/differential evidence to the exact candidate commit and pinned upstream source for both modern and Legacy surfaces. |
+
+Preserve all invariants in section 3. No compatibility layer may access raw Selenium objects, infer targets from window order, suppress cleanup failures, or bypass process/profile ownership. HTTP preflight and site-specific challenge heuristics remain intentional deviations in both phases. Automatic provisioning, additional platforms/browsers, recorder, reporting, broad assertions and test-runner integration remain later scope.
+
+The matrix uses **Equivalent**, **Intentional deviation**, **Not implemented**, and **Execution unverified**. Structural diagrams and available Core primitives are not equivalence evidence. New contracts must reach the C# 7.3/Task-based Legacy facade or state an explicit limitation; use the [support policy](support.md) for future runtime changes. Copied/adapted code requires path/commit/license/NOTICE/modification records in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
 
 ## 5. Logical components
 
@@ -294,6 +314,8 @@ With `reconnect=false`, remain `CdpOnly` after CDP navigation. Losing Chrome or 
 5. Fail with `AmbiguousTarget` rather than guessing.
 6. Increment generation and commit the new epoch only on success.
 
+This Core operation attaches from `CdpOnly`; it does not implement upstream `reconnect(timeout)` by itself. The proposed UC facade disconnects first when needed and measures a minimum hold from confirmed driver exit, allowing navigation to overlap that hold. Core `ReconnectDelay` remains a delay after navigation completion. See the [duration contract](seleniumbase-compatibility.md#disconnected-duration-is-not-an-operation-timeout); both waits consume the relevant operation budget, while mandatory cleanup has its separate bounded scope.
+
 ### 8.6 Final shutdown
 
 Unlike disconnect, `StopAsync`/`DisposeAsync` also terminate library-owned Chrome.
@@ -477,7 +499,7 @@ Use the numbers and repetition counts in [specification section 20](spec.md#20-v
 | Driver lifecycle | Own child process | Control PID/readiness/cancellation/cleanup | Public Selenium service APIs provide equivalent control |
 | Binary patch | Off by default, separate strategy | Isolate version risk | Stable official alternative or feature removal |
 | External Chrome attach | Outside MVP | Unclear process/profile ownership and security | Separate API and acceptance tests are designed |
-| Native input | Later separate package | Desktop/DPI/RDP dependence | Clear demand and dedicated CI |
+| Native input | Phase 1 optional separate package (#33), not implemented | Desktop/DPI/RDP dependence | Explicit input/context contracts and dedicated Windows evidence |
 
 ## 18. Pre-implementation validation questions
 

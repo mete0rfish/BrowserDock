@@ -1,10 +1,10 @@
 # BrowserDock development specification
 
-- Status: research draft incorporating three independent static reviews
+- Status: implemented Core baseline with a phased SeleniumBase compatibility contract (2026-09-28)
 - Research baseline: 2026-09-08 (Asia/Seoul)
 - Initial platform: Windows 11 x64, Google Chrome/Chrome for Testing, supported .NET LTS
 - Implementation: MVP code and automated tests are present. [implementation.md](implementation.md) records execution results and unverified Windows acceptance coverage. No detection-site experiments were performed.
-- Related document: [architecture.md](architecture.md)
+- Related documents: [architecture.md](architecture.md), [SeleniumBase compatibility matrix](seleniumbase-compatibility.md)
 
 ## 1. Facts, decisions, and assumptions
 
@@ -85,9 +85,11 @@ The patch replaces two `window.cdc_*` assignment/logical-expression patterns and
 
 The replacement first makes a separate HTTP request, checking status and CAPTCHA/Cloudflare strings. Only when “special” and without `cdp_base` does it open a JavaScript tab, close the old tab, and reconnect. Otherwise it calls `default_get`. [`browser_launcher.py` L489-L557](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L489-L557)
 
-**Design decision:** do not reproduce HTTP preflight or site-specific challenge-string classification in the MVP. A separate client's cookies/TLS/proxy state differs from Chrome, duplicates requests, and creates maintenance overhead. Callers explicitly choose `Standard` or `Detached`; heuristic policies are later extension points.
+**Design decision:** do not reproduce HTTP preflight or site-specific challenge-string classification in the MVP or either compatibility phase. A separate client's cookies/TLS/proxy state differs from Chrome, duplicates requests, and creates maintenance overhead. Callers explicitly choose `Standard` or `Detached`; any future heuristic policy requires separate opt-in scope. This is an intentional deviation, not an unimplemented automatic fallback.
 
 ### 4.3 Navigation branches
+
+The table below maps existing Core building blocks, not equivalent high-level helpers. The [compatibility matrix](seleniumbase-compatibility.md#navigation-matrix) defines the selected .NET contracts, current status, target/state rules, duration semantics and tracked gaps. In particular, `EnterCdpOnlyAsync` alone does not navigate or provide the full upstream CDP API.
 
 | SeleniumBase path | Actual behavior | BrowserDock mapping |
 |---|---|---|
@@ -137,7 +139,7 @@ High-level SeleniumBase methods with CDP alternatives dispatch to CDP while disc
 
 GUI input is separate from WebDriver/CDP and uses `pyautogui` plus an inter-process GUI lock. Windows coordinate clicks reconnect if needed and adjust using window geometry and screen scaling. [`browser_launcher.py` L1274-L1329](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L1274-L1329) CAPTCHA click flows disconnect immediately before GUI input, then reconnect. [`browser_launcher.py` L1677-L1745](https://github.com/seleniumbase/SeleniumBase/blob/4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80/seleniumbase/core/browser_launcher.py#L1677-L1745)
 
-**Design decision:** place Win32 `SendInput` in a later optional module. Require verified headed Chrome, interactive desktop, foreground window, DPI/coordinates, RDP lock state, UAC boundaries, and serialized global input. Do not provide CAPTCHA-specific or automatic solving APIs.
+**Design decision:** Phase 1 includes a separately packaged, optional general Windows native-input module (#33); it is not implemented in the Core baseline. Require verified headed Chrome, interactive desktop, foreground window, DPI/coordinates, RDP lock state, UAC boundaries, and serialized global input. Do not provide CAPTCHA-specific or automatic solving APIs.
 
 ## 5. Existing C# implementation comparison
 
@@ -213,6 +215,7 @@ NativeAOT and aggressive trimming are outside MVP support. Selenium DevTools dec
 
 ### 7.1 Goals
 
+- Implement the selected Driver/UC and CDP behaviors in the [phased compatibility matrix](seleniumbase-compatibility.md), with explicit deviations and evidence per API; this is not a port of the entire SeleniumBase framework.
 - Run in C#/.NET without Python runtime, subprocesses, or packages.
 - Explicitly manage Windows Chrome processes, profiles, endpoints, and driver attachments.
 - Provide optional binary patching, document-start scripts, and detached navigation independently.
@@ -708,9 +711,11 @@ This section is not legal advice; a separate license review is required before t
 - Document that callers are responsible for complying with site terms, robots policies, authentication/privacy protections, and applicable laws.
 - Do not use even possible detection reduction as a general product guarantee. Results depend on Chrome, driver, site, version, and environment.
 
-## 18. MVP and future features
+## 18. Core baseline and phased compatibility scope
 
-### 18.1 MVP
+### 18.1 Core baseline
+
+These capabilities form the existing engine and its acceptance goals. Presence of a primitive does not establish integrated UC behavior, a verified real-driver recipe, or upstream equivalence. See [implementation.md](implementation.md) for actual execution evidence.
 
 1. Windows 11 x64, headed Chrome, `net481;net8.0;net10.0` (modern .NET only within each runtime's official support period)
 2. Explicit Chrome/ChromeDriver paths and strict version validation
@@ -725,21 +730,38 @@ This section is not legal advice; a separate license review is required before t
 11. Timeouts, cancellation, structured logging, and partial-failure cleanup
 12. Automation of the acceptance tests below
 
-### 18.2 Future features
+### 18.2 Selected SeleniumBase port
+
+The [compatibility matrix](seleniumbase-compatibility.md) is the per-API contract for [#25](https://github.com/mete0rfish/BrowserDock/issues/25) and [Epic #24](https://github.com/mete0rfish/BrowserDock/issues/24). Its rows specify preconditions, explicit target/frame policy, command ordering, disconnected duration, completion, return state, cancellation and reference lifetime. Proposed mappings are not available APIs.
+
+| Stage | Scope and dependencies |
+|---|---|
+| Prerequisites | Contract baseline (#25), consistent startup snapshot (#26), bounded admission/recovery and timeout/cancellation errors (#27), effective navigation-option combinations (#28). These fixes remain separate implementation work. |
+| Phase 1: Driver/UC | Explicit lifecycle/navigation facade (#29), opt-in launch/document-script profile (#30), verified versioned real-driver recipes (#31), high-level WebDriver interactions/waits/context (#32), and separately packaged optional general Windows native input (#33). |
+| Phase 2: CDP | Driver-free startup (#34) and high-level CDP interactions with independent element lifetimes (#35). Ordinary startup followed by disconnect does not satisfy driver-free startup. |
+| Shared evidence | Extend differential fixtures and publish candidate-commit results (#36), including Core/Legacy behavior and intentional deviations. |
+
+Compatibility statuses are **Equivalent**, **Intentional deviation**, **Not implemented**, and **Execution unverified**. Equivalent requires a pinned upstream source and a reproducible passing comparison for the selected behavior on the candidate commit. No row currently claims it. The existing four reference scenarios and historical Windows results cannot establish full UC/CDP or patch parity.
+
+UC stays opt-in; retain ordinary Core defaults. Capture effective options once, reject conflicting or unsupported requests, and preserve ownership, stale guards and bounded cleanup. A proposed helper's minimum disconnected duration is distinct from both the operation deadline and Core's post-navigation `ReconnectDelay`. Caller cancellation remains cancellation; queue expiration must not destroy a healthy attachment (#27). Browser disposal remains final cleanup. See the [shared contract](seleniumbase-compatibility.md#shared-net-contract) for these rules and current gaps.
+
+Selected operations must have matching modern and Legacy contracts or a documented unsupported surface. Phase completion requires the matrix, candidate-commit tests and usage/support/sample updates to agree. Success on Cloudflare/WAF/CAPTCHA pages is not a compatibility acceptance gate. Follow the [provenance rules](seleniumbase-compatibility.md#provenance-and-maintenance) for all copied/adapted source, scripts and recipes.
+
+### 18.3 Later scope
 
 - Automatic CfT driver/browser resolution and offline cache
+- Additional platforms/browsers, recorder, dashboard/reporting, broad assertion DSLs and test-runner integrations
 - Deterministic recovery of multiple page/window/iframe targets
 - CDP event subscriptions, network observation, and download management
 - Proxy and authenticated-proxy support
 - Opt-in browser restart and state migration
-- Win32 native-input package for headed environments
 - Experimental headless/new-headless support, without guarantees equivalent to headed mode
 - Replacement of some CDP functionality when WebDriver BiDi is sufficiently stable
 - Selenium Grid/remote-host research
 - Research into attachment to caller-launched external Chrome
 - Dedicated VB.NET samples and usability improvements
 
-### 18.3 .NET Framework 4.8.1 / C# 7.3 extension
+### 18.4 .NET Framework 4.8.1 / C# 7.3 extension
 
 - Build the shared core for `net481;net8.0;net10.0`, sharing lifecycle, CDP, epoch, and cleanup contracts. Do not remove or change existing .NET 8/10 APIs to support `net481`.
 - `BrowserDock.Legacy` provides `Task`-based APIs and ordinary enum/options/result types. C# 7.3 callers do not need records, init/required, ValueTask, or IAsyncDisposable. Copy settings and collections before asynchronous work starts.
@@ -747,6 +769,7 @@ This section is not legal advice; a separate license review is required before t
 - Provide Framework-specific timeout/process/file/HTTP/Windows-version/argument handling and WebSocket ArraySegment paths. Test the public executor contract with Selenium 4.44.0's net462 asset as well.
 - Framework-specific tests run the .NET 10 fixture server in a separate process. Running the Framework product does not require a modern .NET runtime.
 - Run shared contract tests on the actual net481 runtime in Windows CI, and separately run browser/leak tests in an interactive Windows 11 x64 environment. A successful build alone does not establish runtime support.
+- The compatibility execution baseline is Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. Apply [support.md](support.md) to future releases; record TFM changes explicitly rather than silently expanding or shrinking this matrix.
 - .NET Framework 4.8, dedicated VB.NET APIs/samples, Windows 10, and ARM64 support are outside this scope. Follow [Framework guide](framework481.md) for installation and binding settings.
 
 ## 19. Implementation sequence

@@ -2,6 +2,15 @@
 
 Public changes are recorded here. Breaking changes during 0.x are described explicitly.
 
+## Unreleased
+
+### Added
+
+- SeleniumBase Driver/UC and CDP compatibility contract and per-API matrix for
+  issue #25: phased scope, explicit timing/context/value differences, Core/Legacy
+  requirements, implementation gaps, provenance and candidate-commit evidence rules.
+  This documentation adds no runtime APIs or new browser/parity validation claims.
+
 ## 0.2.0 — 2026-09-25
 
 First non-prerelease GitHub source release in the private repository. No NuGet
