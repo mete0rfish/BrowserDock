@@ -18,6 +18,7 @@ public sealed record DriverArtifactOptions
 {
     public required string ExecutablePath { get; init; }
     public string? CacheDirectory { get; init; }
+    /// <summary>The collection is copied at startup. Strategy objects remain caller-owned; see IDriverPatchStrategy.</summary>
     public IReadOnlyList<IDriverPatchStrategy> PatchStrategies { get; init; } = [];
 }
 public sealed record BrowserTimeouts
@@ -40,6 +41,11 @@ public sealed record BrowserTimeouts
             if (value <= TimeSpan.Zero || value > TimeSpan.FromDays(1)) throw new BrowserDockException(ErrorCategory.ConfigurationError, "Timeouts must be positive and at most one day.");
     }
 }
+/// <summary>
+/// Startup copies and validates the option collections before its first asynchronous wait.
+/// Do not modify the inputs during capture. Later list changes do not affect this browser.
+/// Custom patch strategies and the logger are shared objects, not deep copies.
+/// </summary>
 public sealed record BrowserOptions
 {
     public string? ChromeBinaryPath { get; init; }

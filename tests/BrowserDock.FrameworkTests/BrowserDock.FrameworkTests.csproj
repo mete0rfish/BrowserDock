@@ -8,6 +8,8 @@
     <PlatformTarget Condition="'$(TargetFramework)' == 'net481'">x64</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Shared/StartupSnapshotTests.cs" Link="StartupSnapshotTests.cs" />
+    <Compile Include="../Shared/OptionsCaptureTests.cs" Link="OptionsCaptureTests.cs" />
     <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="NUnit" Version="4.6.1" />

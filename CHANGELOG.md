@@ -2,6 +2,22 @@
 
 Public changes are recorded here. Breaking changes during 0.x are described explicitly.
 
+## Unreleased
+
+### Fixed
+
+- Capture and validate one startup options snapshot and use it for Chrome launch,
+  driver preparation, CDP scripts and subsequent operations (#26). Caller list
+  mutations after capture no longer alter the running configuration. Custom patch
+  strategies and loggers remain caller-owned objects with documented ownership.
+
+### Added
+
+- SeleniumBase Driver/UC and CDP compatibility contract and per-API matrix for
+  issue #25: phased scope, explicit timing/context/value differences, Core/Legacy
+  requirements, implementation gaps, provenance and candidate-commit evidence rules.
+  This documentation adds no runtime APIs or new browser/parity validation claims.
+
 ## 0.2.0 — 2026-09-25
 
 First non-prerelease GitHub source release in the private repository. No NuGet

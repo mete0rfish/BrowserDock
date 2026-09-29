@@ -113,16 +113,22 @@ public sealed class CompatibilityTests
         var recipe = new Legacy.DriverPatchRecipe { RecipeId = "r", MinimumVersion = new Version(1, 0), MaximumVersion = new Version(2, 0), Patterns = new[] { pattern } };
         var options = new Legacy.BrowserOptions { ChromeArguments = new List<string> { "--lang=en" }, Driver = new Legacy.DriverArtifactOptions { ExecutablePath = "driver", PatchRecipes = new[] { recipe } } };
         options.Profile.Directory = "before";
+        options.NewDocumentScripts.Add("globalThis.before=true"); options.AdditionalUrlSchemes.Add("before");
         var snapshot = options.Snapshot();
         options.ChromeArguments[0] = "--lang=ko"; options.Profile.Directory = "after";
-        options.Timeouts.ChromeStart = TimeSpan.FromSeconds(1); pattern.Search[0] = 9; recipe.RecipeId = "changed";
+        options.NewDocumentScripts.Clear(); options.AdditionalUrlSchemes.Clear();
+        options.Timeouts.ChromeStart = TimeSpan.FromSeconds(1); pattern.Search[0] = 9; pattern.Replacement[0] = 8; recipe.RecipeId = "changed";
+        recipe.Patterns = Array.Empty<Legacy.PatchPattern>(); options.Driver.PatchRecipes = Array.Empty<Legacy.DriverPatchRecipe>();
         Assert.Multiple(() =>
         {
             Assert.That(snapshot.ChromeArguments.Single(), Is.EqualTo("--lang=en"));
+            Assert.That(snapshot.NewDocumentScripts.Single(), Is.EqualTo("globalThis.before=true"));
+            Assert.That(snapshot.AdditionalUrlSchemes.Single(), Is.EqualTo("before"));
             Assert.That(snapshot.Profile.Directory, Is.EqualTo("before"));
             Assert.That(snapshot.Timeouts.ChromeStart, Is.Not.EqualTo(options.Timeouts.ChromeStart));
             Assert.That(snapshot.Driver.PatchStrategies.Single().RecipeId, Is.EqualTo("r"));
             Assert.That(snapshot.Driver.PatchStrategies.Single().Patterns.Single().Search[0], Is.EqualTo(1));
+            Assert.That(snapshot.Driver.PatchStrategies.Single().Patterns.Single().Replacement[0], Is.EqualTo(2));
         });
     }
 

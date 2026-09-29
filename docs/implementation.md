@@ -1,5 +1,9 @@
 # Implementation and verification record
 
+See [2026-09-29 issue-26 verification](issue-26-validation.md) for the startup
+snapshot fix, before/after regressions, runtime matrix and remaining Windows UI
+failures. The records below retain their original dates and scope.
+
 ## Current verification summary (documentation update, 2026-09-24)
 
 This table summarizes existing execution records. Tests were not rerun for this documentation update; these are not results for the current checkout or release candidate. Dated failures and unexecuted checks below are retained as diagnostic history.
