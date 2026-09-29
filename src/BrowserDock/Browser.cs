@@ -34,6 +34,7 @@ public sealed class Browser : IAsyncDisposable
     public BrowserState State => state;
     public long SessionGeneration => Interlocked.Read(ref generation);
     public long AttachmentEpoch => admission.Epoch;
+    internal BrowserOptions EffectiveOptionsForTest => options;
     internal (string? Profile, Uri? Endpoint, string? SessionId, int? DriverPort, long Sent) TestSnapshot => (profile?.Path, endpoint, attachment?.SessionId, attachment?.Port, attachment?.Executor.Sent ?? 0);
     internal void InterruptCdpForTest() => cdp!.InterruptForTest();
     internal bool? StoppedTreeAliveForTest { get; private set; }
@@ -53,36 +54,34 @@ public sealed class Browser : IAsyncDisposable
     public static async ValueTask<Browser> StartAsync(BrowserOptions options, CancellationToken cancellationToken = default)
     {
         RuntimeCompatibility.NotNull(options, nameof(options));
-        Validate(options);
+        if (!Platform.IsWindows || !Platform.IsX64Process || Platform.WindowsBuild < 22000)
+            throw new PlatformNotSupportedException("BrowserDock browser hosting requires Windows 11 x64. Common unit/contract tests can run on other platforms.");
+        var effectiveOptions = CaptureOptions(options);
         cancellationToken.ThrowIfCancellationRequested();
-        var browser = new Browser(options with
-        {
-            ChromeArguments = options.ChromeArguments.ToArray(), AdditionalUrlSchemes = options.AdditionalUrlSchemes.ToArray(), NewDocumentScripts = options.NewDocumentScripts.ToArray(),
-            Driver = options.Driver with { PatchStrategies = options.Driver.PatchStrategies.ToArray() }
-        });
+        var browser = new Browser(effectiveOptions);
         try
         {
             await browser.OperationAsync(async token =>
             {
                 browser.SetState(BrowserState.StartingChrome);
                 await browser.StageAsync("validation", token).ConfigureAwait(false);
-                var chromePath = BrowserHosting.LocateChrome(options.ChromeBinaryPath);
+                var chromePath = BrowserHosting.LocateChrome(effectiveOptions.ChromeBinaryPath);
                 Version version;
-                using (var deadline = new Deadline(options.Timeouts.ChromeStart, token))
-                    version = await BrowserHosting.ValidateVersionsAsync(chromePath, options.Driver.ExecutablePath, deadline.Token).ConfigureAwait(false);
-                browser.driverPath = await DriverPatchCache.PrepareAsync(options.Driver, version, options.PatchMode, token).ConfigureAwait(false);
-                browser.profile = Profile.Acquire(options.Profile);
+                using (var deadline = new Deadline(effectiveOptions.Timeouts.ChromeStart, token))
+                    version = await BrowserHosting.ValidateVersionsAsync(chromePath, effectiveOptions.Driver.ExecutablePath, deadline.Token).ConfigureAwait(false);
+                browser.driverPath = await DriverPatchCache.PrepareAsync(effectiveOptions.Driver, version, effectiveOptions.PatchMode, token).ConfigureAwait(false);
+                browser.profile = Profile.Acquire(effectiveOptions.Profile);
                 await browser.StageAsync("chrome-start", token).ConfigureAwait(false);
-                browser.chrome = new OwnedProcess(chromePath, new[] { "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", $"--user-data-dir={browser.profile.Path}", "--no-first-run", "--no-default-browser-check" }.Concat(options.ChromeArguments).Append("about:blank"), tree: true);
+                browser.chrome = new OwnedProcess(chromePath, new[] { "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", $"--user-data-dir={browser.profile.Path}", "--no-first-run", "--no-default-browser-check" }.Concat(effectiveOptions.ChromeArguments).Append("about:blank"), tree: true);
                 await browser.StageAsync("endpoint", token).ConfigureAwait(false);
-                using (var deadline = new Deadline(options.Timeouts.DevToolsEndpointDiscovery, token)) browser.endpoint = await BrowserHosting.DiscoverAsync(browser.profile, browser.chrome, deadline.Token).ConfigureAwait(false);
-                browser.cdp = new(browser.endpoint, options.NewDocumentScripts, options.RemoveDiscoveredCdcProperties);
-                using (var deadline = new Deadline(options.Timeouts.CdpConnect, token)) await browser.cdp.InitializeAsync(deadline.Token).ConfigureAwait(false);
+                using (var deadline = new Deadline(effectiveOptions.Timeouts.DevToolsEndpointDiscovery, token)) browser.endpoint = await BrowserHosting.DiscoverAsync(browser.profile, browser.chrome, deadline.Token).ConfigureAwait(false);
+                browser.cdp = new(browser.endpoint, effectiveOptions.NewDocumentScripts, effectiveOptions.RemoveDiscoveredCdcProperties);
+                using (var deadline = new Deadline(effectiveOptions.Timeouts.CdpConnect, token)) await browser.cdp.InitializeAsync(deadline.Token).ConfigureAwait(false);
                 await browser.ProbeAsync(token).ConfigureAwait(false);
                 browser.SetState(BrowserState.ChromeReady);
                 await browser.AttachCoreAsync(false, token).ConfigureAwait(false);
                 return true;
-            }, options.Timeouts.ChromeStart + options.Timeouts.DevToolsEndpointDiscovery + options.Timeouts.CdpConnect + options.Timeouts.Reconnect, cancellationToken).ConfigureAwait(false);
+            }, effectiveOptions.Timeouts.ChromeStart + effectiveOptions.Timeouts.DevToolsEndpointDiscovery + effectiveOptions.Timeouts.CdpConnect + effectiveOptions.Timeouts.Reconnect, cancellationToken).ConfigureAwait(false);
             return browser;
         }
         catch (Exception original)
@@ -93,11 +92,24 @@ public sealed class Browser : IAsyncDisposable
             throw;
         }
     }
+    // Capture and validate the same values before any asynchronous startup work.
+    // Strategy objects and the logger remain caller-owned; see their API contracts.
+    internal static BrowserOptions CaptureOptions(BrowserOptions options)
+    {
+        RuntimeCompatibility.NotNull(options, nameof(options));
+        RuntimeCompatibility.NotNull(options.Driver, nameof(options.Driver));
+        var captured = options with
+        {
+            ChromeArguments = Array.AsReadOnly(options.ChromeArguments.ToArray()),
+            AdditionalUrlSchemes = Array.AsReadOnly(options.AdditionalUrlSchemes.ToArray()),
+            NewDocumentScripts = Array.AsReadOnly(options.NewDocumentScripts.ToArray()),
+            Driver = options.Driver with { PatchStrategies = Array.AsReadOnly(options.Driver.PatchStrategies.ToArray()) }
+        };
+        Validate(captured);
+        return captured;
+    }
     private static void Validate(BrowserOptions options)
     {
-        if (!Platform.IsWindows || !Platform.IsX64Process || Platform.WindowsBuild < 22000)
-            throw new PlatformNotSupportedException("BrowserDock browser hosting requires Windows 11 x64. Common unit/contract tests can run on other platforms.");
-        RuntimeCompatibility.NotNull(options.Driver, nameof(options.Driver));
         options.Timeouts.Validate();
         if (!Enum.IsDefined(typeof(DriverPatchMode), options.PatchMode) || options.BrowserOwnership != BrowserOwnership.Library) throw new BrowserDockException(ErrorCategory.ConfigurationError, "Invalid ownership or patch mode.");
         foreach (var arg in options.ChromeArguments)

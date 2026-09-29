@@ -49,6 +49,18 @@ If `ChromeBinaryPath` is omitted, the library searches standard installation loc
 
 ## API rules
 
+- `StartAsync` copies the Chrome arguments, additional URL schemes, new-document
+  scripts and patch-strategy collection before its first asynchronous wait, then
+  validates and uses that same snapshot throughout startup and later operations.
+  Do not mutate inputs during capture; later list changes do not reconfigure the
+  browser. Argument/script order and existing option precedence are preserved.
+- Core `IDriverPatchStrategy` implementations remain caller-owned. Keep their
+  `RecipeId`, `Supports` behavior, `Patterns` collection and each pattern's `Search`
+  and `Replacement` byte arrays unchanged until startup completes, fails or is
+  canceled. Strategies reused by concurrent starts must support concurrent reads.
+  The Legacy facade copies its recipe data and both byte arrays at its entry
+  boundary. Logger instances are shared for the browser lifetime, never cloned
+  or frozen; configure them for concurrent use.
 - `Standard` navigation requires attached WebDriver. `Detached` disconnects first, navigates through CDP, and creates a new session when `ReconnectAfterNavigation=true`.
 - `CdpOnly` navigation requires explicit WebDriver disconnection. It does not disconnect or reconnect implicitly.
 - Starting `DisconnectWebDriverAsync()` invalidates previous leases and elements. Old references fail locally even before reconnection succeeds.
