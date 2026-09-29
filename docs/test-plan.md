@@ -14,6 +14,8 @@ The steps below preserve the original goals and additional verification criteria
 
 ## 1. Comparison scope and evaluation
 
+The [SeleniumBase compatibility matrix](seleniumbase-compatibility.md) now defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts under #24/#25. Its row-specific gaps and evidence rules extend this original plan; the four existing scenarios remain a subset. #36 must add timeline, duration, target/frame, value, cancellation and cleanup observations before any new equivalence claim. This scope update is not an execution result.
+
 BrowserDock is an independent .NET implementation inspired by SeleniumBase UC Mode, not an identical framework/API. Compare Chrome-preserving detach/reattach, navigation, and state preservation. Final product acceptance follows [AC-01–10](spec.md#20-verifiable-acceptance-criteria).
 
 The [official UC guide](https://seleniumbase.io/help_docs/uc_mode/) describes starting Chrome before attaching ChromeDriver, disconnecting as needed, and `disconnect()`, `connect()`, and `uc_open_with_reconnect()`. Use those behaviors as scenario starting points.
