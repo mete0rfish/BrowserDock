@@ -304,8 +304,11 @@ public sealed class Browser : IAsyncDisposable
         }, options.Timeouts.Reconnect, cancellationToken);
     private WebDriverLease NewLease()
     {
-        if (State != BrowserState.WebDriverAttached || !admission.IsOpen) throw new StaleAttachmentException();
-        return new(this, SessionGeneration, AttachmentEpoch);
+        lock (attachmentSync)
+        {
+            if (State != BrowserState.WebDriverAttached || !admission.IsOpen) throw new StaleAttachmentException();
+            return new(this, SessionGeneration, AttachmentEpoch);
+        }
     }
     public ValueTask<WebDriverLease> GetWebDriverAsync(CancellationToken cancellationToken = default)
         => OperationAsync(async token => { await ProbeAsync(token).ConfigureAwait(false); if (attachment is not null && !attachment.Process.Alive) await RemoveFailedAttachmentAsync().ConfigureAwait(false); return NewLease(); }, options.Timeouts.Command, cancellationToken);
@@ -514,26 +517,31 @@ public sealed class Browser : IAsyncDisposable
                 PublishAttachment(null);
             }
             await ProbeAsync(cleanup.Token).ConfigureAwait(false);
-            SetState(BrowserState.CdpOnly);
+            lock (attachmentSync)
+            {
+                if (closedEpoch == AttachmentEpoch && attachment is null && !lifetime.IsCancellationRequested &&
+                    State == BrowserState.WebDriverAttached) SetState(BrowserState.CdpOnly);
+            }
         }
         catch (Exception e)
         {
             failures.Add($"{(held ? "driver/probe" : "lifecycle")}: {e.GetType().Name}");
+        }
+        finally
+        {
+            // Observe an independently failing disposal even when gate waiting expired.
+            try { await destroying.ConfigureAwait(false); }
+            catch (Exception e) { failures.Add($"driver: {e.GetType().Name}"); }
             lock (attachmentSync)
             {
-                if (closedEpoch == AttachmentEpoch && !lifetime.IsCancellationRequested &&
-                    State == BrowserState.WebDriverAttached && (attachment is null || ReferenceEquals(attachment, failed)))
+                if (failures.Count != 0 && closedEpoch == AttachmentEpoch && !lifetime.IsCancellationRequested &&
+                    State is BrowserState.WebDriverAttached or BrowserState.Faulted &&
+                    (attachment is null || ReferenceEquals(attachment, failed)))
                 {
                     cleanupFailures = failures.ToArray(); SetState(BrowserState.Faulted);
                 }
             }
-        }
-        finally
-        {
             if (held) lifecycle.Release();
-            // Observe an independently failing disposal even when gate waiting expired.
-            try { await destroying.ConfigureAwait(false); }
-            catch (Exception e) { failures.Add($"driver: {e.GetType().Name}"); }
         }
     }
     private async Task RemoveFailedAttachmentAsync()

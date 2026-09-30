@@ -21,7 +21,7 @@ public sealed class CommandDeadlineTests
     [TestCase(false), TestCase(true)]
     public async Task QueuedDeadlinePreservesAttachmentAndGateOwnership(bool legacy)
     {
-        await using var fixture = new CommandFixture(TimeSpan.FromMilliseconds(150));
+        await using var fixture = await CommandFixture.StartAsync(TimeSpan.FromMilliseconds(150));
         var epoch = fixture.Browser.AttachmentEpoch;
         await fixture.Browser.CommandsGateForTest.WaitAsync();
         try
@@ -46,7 +46,7 @@ public sealed class CommandDeadlineTests
     [TestCase(false), TestCase(true)]
     public async Task QueuedCallerCancellationPreservesTokenAndDiagnostics(bool legacy)
     {
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         using var caller = new CancellationTokenSource();
         var epoch = fixture.Browser.AttachmentEpoch;
         await fixture.Browser.CommandsGateForTest.WaitAsync();
@@ -75,7 +75,7 @@ public sealed class CommandDeadlineTests
     [Test]
     public async Task DisposedLeaseWhileQueuedDoesNotDispatchOrRecover()
     {
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         await fixture.Browser.CommandsGateForTest.WaitAsync();
         var pending = fixture.Title(false);
         await fixture.Lease.DisposeAsync();
@@ -93,7 +93,7 @@ public sealed class CommandDeadlineTests
     public async Task RunningDeadlineDisposesExactAttachmentAndReportsOriginalError(bool legacy)
     {
         var entered = Signal(); var release = Signal();
-        await using var fixture = new CommandFixture(TimeSpan.FromSeconds(1));
+        await using var fixture = await CommandFixture.StartAsync(TimeSpan.FromSeconds(1));
         fixture.Executor.Title = async () => { entered.TrySetResult(true); await release.Task; return "late"; };
         var pending = fixture.Title(legacy);
         Exception error;
@@ -110,7 +110,7 @@ public sealed class CommandDeadlineTests
     public async Task RecoveryGateContentionIsBoundedAndDoesNotReleaseAnUnownedGate(bool legacy)
     {
         var recovering = Signal();
-        await using var fixture = new CommandFixture(cleanupBudget: TimeSpan.FromMilliseconds(200),
+        await using var fixture = await CommandFixture.StartAsync(cleanupBudget: TimeSpan.FromMilliseconds(200),
             stage: (name, _) => { if (name == "command-recovery") recovering.TrySetResult(true); return default; });
         fixture.Executor.Title = () => Task.FromException<string>(new WebDriverException("driver lost"));
         await fixture.Browser.LifecycleGateForTest.WaitAsync();
@@ -139,8 +139,14 @@ public sealed class CommandDeadlineTests
     public async Task RecoveryUsesRemainingBudgetForProbeAndPreservesCleanupDiagnostics()
     {
         var probing = Signal();
-        await using var fixture = new CommandFixture(cleanupBudget: TimeSpan.FromMilliseconds(200),
-            probe: async token => { probing.TrySetResult(true); await Task.Delay(Timeout.Infinite, token); });
+        CancellationToken recoveryToken = default;
+        await using var fixture = await CommandFixture.StartAsync(cleanupBudget: TimeSpan.FromMilliseconds(200),
+            stage: (name, token) => { if (name == "command-recovery") recoveryToken = token; return default; },
+            probe: async token =>
+            {
+                Assert.That(token, Is.EqualTo(recoveryToken), "Probe must retain the original recovery scope.");
+                probing.TrySetResult(true); await Task.Delay(Timeout.Infinite, token);
+            });
         fixture.Executor.Title = () => Task.FromException<string>(new WebDriverException("driver lost"));
         var pending = fixture.Title(false);
         await Bounded(probing.Task);
@@ -157,11 +163,11 @@ public sealed class CommandDeadlineTests
     public async Task OldEpochFailureCannotInvalidateOrDestroyReplacement()
     {
         var entered = Signal(); var release = Signal();
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         fixture.Executor.Title = async () => { entered.TrySetResult(true); await release.Task; throw new WebDriverException("old failure"); };
         var pending = fixture.Title(false);
         await Bounded(entered.Task);
-        var replacement = fixture.AddAttachment();
+        var replacement = await fixture.AddAttachmentAsync();
         fixture.Browser.ReplaceAttachmentForTest(replacement.Attachment);
         var epoch = fixture.Browser.AttachmentEpoch;
         release.TrySetResult(true);
@@ -178,7 +184,7 @@ public sealed class CommandDeadlineTests
     public async Task InvalidationPrecedesCommandGateReleaseWithoutTakingLifecycleGate()
     {
         var recovering = Signal(); var release = Signal();
-        await using var fixture = new CommandFixture(stage: async (name, token) =>
+        await using var fixture = await CommandFixture.StartAsync(stage: async (name, token) =>
         { if (name == "command-recovery") { recovering.TrySetResult(true); await TaskCompatibility.WaitAsync(release.Task, token); } });
         fixture.Executor.Title = () => Task.FromException<string>(new WebDriverException("driver lost"));
         var pending = fixture.Title(false);
@@ -200,7 +206,7 @@ public sealed class CommandDeadlineTests
     public async Task ConcurrentStopAndDisposePreserveLifetimeCancellationAndSingleCleanupOwner(bool legacy)
     {
         var entered = Signal(); var release = Signal();
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         fixture.Executor.Title = async () => { entered.TrySetResult(true); await release.Task; return "late"; };
         var pending = fixture.Title(legacy);
         Exception error;
@@ -222,10 +228,80 @@ public sealed class CommandDeadlineTests
         Assert.That(fixture.Browser.LifecycleGateForTest.CurrentCount, Is.EqualTo(1));
     }
 
+    [TestCase(false), TestCase(true)]
+    public async Task RunningCallerCancellationPreservesTokenAndCompletesOwnedCleanup(bool legacy)
+    {
+        var entered = Signal(); var release = Signal();
+        await using var fixture = await CommandFixture.StartAsync();
+        using var caller = new CancellationTokenSource();
+        fixture.Executor.Title = async () => { entered.TrySetResult(true); await release.Task; return "late"; };
+        var pending = fixture.Title(legacy, caller.Token);
+        Exception error;
+        try
+        {
+            await Bounded(entered.Task);
+            caller.Cancel();
+            error = await Catch(pending);
+        }
+        finally { release.TrySetResult(true); }
+        Assert.That(error, Is.InstanceOf<OperationCanceledException>());
+        Assert.That(((OperationCanceledException)error).CancellationToken, Is.EqualTo(caller.Token));
+        Assert.That(error.Data["CleanupFailures"], Is.Empty);
+        Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.CdpOnly));
+        Assert.That(fixture.Executor.Disposals, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ReplacementDuringRecoveryBudgetExpiryKeepsNewAdmissionOpen()
+    {
+        var recovering = Signal();
+        await using var fixture = await CommandFixture.StartAsync(cleanupBudget: TimeSpan.FromSeconds(3),
+            stage: (name, _) => { if (name == "command-recovery") recovering.TrySetResult(true); return default; });
+        fixture.Executor.Title = () => Task.FromException<string>(new WebDriverException("old failure"));
+        await fixture.Browser.LifecycleGateForTest.WaitAsync();
+        try
+        {
+            var pending = fixture.Title(false);
+            await Bounded(recovering.Task);
+            var replacement = await fixture.AddAttachmentAsync();
+            fixture.Browser.ReplaceAttachmentForTest(replacement.Attachment);
+            var epoch = fixture.Browser.AttachmentEpoch;
+            var error = (BrowserDockException)await Catch(pending);
+            Assert.That(error.CleanupFailures, Has.Some.StartsWith("lifecycle:"));
+            Assert.That(fixture.Browser.AttachmentEpoch, Is.EqualTo(epoch));
+            Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.WebDriverAttached));
+            Assert.That(replacement.Executor.Disposals, Is.Zero);
+            Assert.That(await Bounded(fixture.Browser.LeaseForTest().Commands.GetTitleAsync().AsTask()), Is.EqualTo("fixture"));
+        }
+        finally { fixture.Browser.LifecycleGateForTest.Release(); }
+    }
+
+    [Test]
+    public async Task CancellationAfterDeadlineClassificationDoesNotChangeOriginalReason()
+    {
+        var entered = Signal(); var recovering = Signal(); var releaseWork = Signal(); var releaseRecovery = Signal();
+        using var caller = new CancellationTokenSource();
+        await using var fixture = await CommandFixture.StartAsync(TimeSpan.FromSeconds(1), stage: async (name, token) =>
+        { if (name == "command-recovery") { recovering.TrySetResult(true); await TaskCompatibility.WaitAsync(releaseRecovery.Task, token); } });
+        fixture.Executor.Title = async () => { entered.TrySetResult(true); await releaseWork.Task; return "late"; };
+        var pending = fixture.Title(false, caller.Token);
+        try
+        {
+            await Bounded(entered.Task);
+            await Bounded(recovering.Task);
+            caller.Cancel();
+            releaseRecovery.TrySetResult(true);
+            var error = (BrowserDockException)await Catch(pending);
+            Assert.That(error.Category, Is.EqualTo(ErrorCategory.OperationTimedOut));
+            Assert.That(error.InnerException, Is.InstanceOf<OperationCanceledException>());
+        }
+        finally { releaseRecovery.TrySetResult(true); releaseWork.TrySetResult(true); }
+    }
+
     [Test]
     public async Task BothCancellationSourcesPreferCallerAndDoNotTurnIntoTimeout()
     {
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         using var caller = new CancellationTokenSource();
         caller.Cancel();
         await Bounded(fixture.Browser.StopAsync().AsTask());
@@ -237,7 +313,7 @@ public sealed class CommandDeadlineTests
     [Test]
     public async Task ArgumentFailureRetainsHealthyAttachmentAndOriginalException()
     {
-        await using var fixture = new CommandFixture();
+        await using var fixture = await CommandFixture.StartAsync();
         var original = new ArgumentException("bad command");
         fixture.Executor.Title = () => Task.FromException<string>(original);
         var epoch = fixture.Browser.AttachmentEpoch;
@@ -279,18 +355,28 @@ public sealed class CommandDeadlineTests
         public WebDriverLease Lease { get; }
         public Attachment Attachment { get; }
         public MemoryExecutor Executor { get; }
-        public CommandFixture(TimeSpan? commandBudget = null, TimeSpan? cleanupBudget = null,
-            Func<string, CancellationToken, ValueTask>? stage = null, Func<CancellationToken, Task>? probe = null)
+        private CommandFixture(Attachment initial, MemoryExecutor executor, TimeSpan? commandBudget, TimeSpan? cleanupBudget,
+            Func<string, CancellationToken, ValueTask>? stage, Func<CancellationToken, Task>? probe)
         {
-            (Attachment, Executor) = AddAttachment();
+            Attachment = initial; Executor = executor; owned.Add(initial);
             Browser = new(new() { Driver = new() { ExecutablePath = "unused" },
                 Timeouts = new() { Command = commandBudget ?? TimeSpan.FromSeconds(5) }, StageHook = stage },
                 Attachment, probe ?? (_ => Task.CompletedTask), cleanupBudget ?? TimeSpan.FromSeconds(5));
             Lease = Browser.LeaseForTest();
         }
+        public static async Task<CommandFixture> StartAsync(TimeSpan? commandBudget = null, TimeSpan? cleanupBudget = null,
+            Func<string, CancellationToken, ValueTask>? stage = null, Func<CancellationToken, Task>? probe = null)
+        {
+            var (attachment, executor) = await CreateAttachmentAsync();
+            return new(attachment, executor, commandBudget, cleanupBudget, stage, probe);
+        }
         public Task<string> Title(bool legacy, CancellationToken token = default)
             => legacy ? new Legacy.GuardedCommands(Lease.Commands).GetTitleAsync(token) : Lease.Commands.GetTitleAsync(token).AsTask();
-        public (Attachment Attachment, MemoryExecutor Executor) AddAttachment()
+        public async Task<(Attachment Attachment, MemoryExecutor Executor)> AddAttachmentAsync()
+        {
+            var value = await CreateAttachmentAsync(); owned.Add(value.Attachment); return value;
+        }
+        private static async Task<(Attachment Attachment, MemoryExecutor Executor)> CreateAttachmentAsync()
         {
             var root = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
             while (root is not null && !File.Exists(Path.Combine(root.FullName, "BrowserDock.slnx"))) root = root.Parent;
@@ -298,16 +384,30 @@ public sealed class CommandDeadlineTests
             var configuration = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Parent!.Name;
             var path = Path.Combine(root.FullName, "tests", "BrowserDock.FixtureHost", "bin", configuration, "net10.0",
                 Platform.IsWindows ? "BrowserDock.FixtureHost.exe" : "BrowserDock.FixtureHost");
-            var process = new OwnedProcess(path, Array.Empty<string>());
+            var ready = Path.Combine(Path.GetTempPath(), "browserdock-command-" + Guid.NewGuid().ToString("N"));
+            var process = new OwnedProcess(path, new[] { "--command-ready-file=" + ready });
             var memory = new MemoryExecutor();
             var executor = new DetachAwareCommandExecutor(memory);
             try
             {
+                using var startup = new CancellationTokenSource(Watchdog);
+                while (!File.Exists(ready))
+                {
+                    if (!process.Alive) throw new InvalidOperationException("Owned command fixture exited before readiness.");
+                    await Task.Delay(20, startup.Token);
+                }
+                Assert.That(int.Parse(await RuntimeCompatibility.ReadAllTextAsync(ready, startup.Token)), Is.EqualTo(process.Id));
                 var driver = new RemoteWebDriver(executor, global::BrowserDock.WebDriver.Attachment.CreateOptions(new Uri("ws://127.0.0.1:1/devtools/browser/fixture")).ToCapabilities());
-                var attachment = new Attachment(process, 0, executor, driver);
-                owned.Add(attachment); return (attachment, memory);
+                return (new Attachment(process, 0, executor, driver), memory);
             }
-            catch { process.Terminate(); process.Dispose(); executor.Dispose(); throw; }
+            catch
+            {
+                process.Terminate();
+                using var cleanup = new CancellationTokenSource(Watchdog);
+                await process.WaitAsync(cleanup.Token);
+                process.Dispose(); executor.Dispose(); throw;
+            }
+            finally { File.Delete(ready); File.Delete(ready + ".tmp"); }
         }
         public async ValueTask DisposeAsync()
         {
@@ -325,7 +425,6 @@ public sealed class CommandDeadlineTests
         public int Commands => Volatile.Read(ref commands);
         public int Disposals => Volatile.Read(ref disposals);
         public Func<Task<string>> Title { get; set; } = () => Task.FromResult("fixture");
-        public Action? OnDispose { get; set; }
         public bool TryAddCommand(string name, CommandInfo? info) => false;
         public Response Execute(Command command)
         {
@@ -335,6 +434,6 @@ public sealed class CommandDeadlineTests
             return new Response(command.SessionId?.ToString(), Title().GetAwaiter().GetResult(), WebDriverResult.Success);
         }
         public Task<Response> ExecuteAsync(Command command) => Task.FromResult(Execute(command));
-        public void Dispose() { Interlocked.Increment(ref disposals); OnDispose?.Invoke(); }
+        public void Dispose() => Interlocked.Increment(ref disposals);
     }
 }
