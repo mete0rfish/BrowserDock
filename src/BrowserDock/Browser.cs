@@ -490,7 +490,7 @@ public sealed class Browser : IAsyncDisposable
         if (error is BrowserDockException browserError)
         {
             browserError.OperationId = id; browserError.Diagnostic = Health;
-            browserError.CleanupFailures = cleanupErrors.ToArray();
+            browserError.CleanupFailures = browserError.CleanupFailures.Concat(cleanupErrors).ToArray();
         }
         else
         {
@@ -535,7 +535,7 @@ public sealed class Browser : IAsyncDisposable
             lock (attachmentSync)
             {
                 if (failures.Count != 0 && closedEpoch == AttachmentEpoch && !lifetime.IsCancellationRequested &&
-                    State is BrowserState.WebDriverAttached or BrowserState.Faulted &&
+                    (State is BrowserState.WebDriverAttached or BrowserState.Faulted) &&
                     (attachment is null || ReferenceEquals(attachment, failed)))
                 {
                     cleanupFailures = failures.ToArray(); SetState(BrowserState.Faulted);

@@ -326,6 +326,43 @@ public sealed class CommandDeadlineTests
         Assert.That(await Bounded(fixture.Title(false)), Is.EqualTo("fixture"));
     }
 
+    [Test]
+    public async Task TypedFailureRetainsExistingCleanupDetails()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var original = new BrowserDockException(ErrorCategory.ProtocolError, "original") { CleanupFailures = new[] { "original cleanup" } };
+        fixture.Executor.Title = () => Task.FromException<string>(original);
+        var error = (BrowserDockException)await Catch(fixture.Title(false));
+        Assert.That(error, Is.SameAs(original));
+        Assert.That(error.CleanupFailures, Is.EqualTo(new[] { "original cleanup" }));
+        Assert.That(error.OperationId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(fixture.Executor.Disposals, Is.Zero);
+    }
+
+    [Test]
+    public async Task ReplacementWhileHealthProbeIsPendingCannotBeOverwritten()
+    {
+        var probing = Signal(); var release = Signal();
+        await using var fixture = await CommandFixture.StartAsync(probe: async token =>
+        { probing.TrySetResult(true); await TaskCompatibility.WaitAsync(release.Task, token); });
+        fixture.Executor.Title = () => Task.FromException<string>(new WebDriverException("old failure"));
+        var pending = fixture.Title(false);
+        try
+        {
+            await Bounded(probing.Task);
+            var replacement = await fixture.AddAttachmentAsync();
+            fixture.Browser.ReplaceAttachmentForTest(replacement.Attachment);
+            var epoch = fixture.Browser.AttachmentEpoch;
+            release.TrySetResult(true);
+            await Catch(pending);
+            Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.WebDriverAttached));
+            Assert.That(fixture.Browser.AttachmentEpoch, Is.EqualTo(epoch));
+            Assert.That(replacement.Executor.Disposals, Is.Zero);
+            Assert.That(await Bounded(fixture.Browser.LeaseForTest().Commands.GetTitleAsync().AsTask()), Is.EqualTo("fixture"));
+        }
+        finally { release.TrySetResult(true); }
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
