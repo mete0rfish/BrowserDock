@@ -4,7 +4,8 @@ This draft describes the proposed fix for [issue 27](https://github.com/mete0rfi
 Queued commands must share the operation deadline, report timeout separately from
 caller cancellation, and leave a healthy attachment intact if execution never
 started. Failed commands need bounded recovery that cannot remove a newer
-attachment. Implementation and acceptance tests are pending.
+attachment. Implementation and portable regression tests are now checked in. Windows browser
+acceptance remains a separate, pending validation step.
 
 ## Evidence and limits
 
@@ -31,7 +32,7 @@ counts, process cleanup, lifecycle contention, or Legacy parity. Those require
 the acceptance tests below. No complete solution build or browser acceptance run
 was performed for this draft.
 
-## Proposed implementation
+## Implementation
 
 1. Create the operation identifier and deadline before queueing. Put validation,
    command-gate acquisition, admission, and execution inside the common error
@@ -105,3 +106,51 @@ After implementing the regressions and fix, run the targeted tests and
 skips, before marking the PR ready. Align the final behavior with the
 [shared compatibility contract](seleniumbase-compatibility.md#shared-net-contract)
 and [architecture cancellation rules](architecture.md#11-timeouts-and-cancellation).
+
+
+## Portable implementation and validation
+
+`CommandDeadlineTests` is shared by the Core and Framework test projects. It
+runs the real Browser command path through Core and Legacy guarded commands,
+using an in-memory W3C executor and a real owned fixture-host process. It does
+not start Chrome, perform Windows listener attribution, or establish real
+ChromeDriver/Chrome/CDP health. An injected probe isolates the command contract.
+Tests use entry/release barriers and an outer 15-second watchdog. They cover
+queue expiration and caller-token preservation, stale queued leases, admitted
+stalls, lifecycle contention, probe expiration, old-epoch replacement, admission
+invalidation ordering, concurrent Stop/Dispose, cancellation precedence, and
+ordinary argument failures.
+
+Command failure classification occurs before recovery. If caller and browser
+lifetime cancellation are both signaled at that point, caller cancellation wins.
+Cancellation stays an `OperationCanceledException`, with the selected original
+token and original failure as its inner exception. Its `Data` contains
+`OperationId` (`Guid`), `Diagnostic` (Core `BrowserHealthSnapshot`), and
+`CleanupFailures` (`string[]`). Legacy passes this cancellation and metadata
+through. Typed timeout/driver errors retain their existing Core/Legacy models.
+
+Failure invalidates admission before releasing the command gate. Recovery starts
+one ten-second budget before waiting for lifecycle ownership; it disposes the
+captured attachment and only updates shared state for the same identity and
+closed epoch. Gate-budget exhaustion records incomplete recovery, closes reuse,
+and marks the still-current attachment Faulted without overwriting Stop/Dispose
+or a replacement. Attachment cancellation and disposal share one executor/process
+owner. A wait expiring does not abandon ownership of already-started disposal:
+a later Stop/Dispose joins that same task, and pending disposal remains observed.
+This is not evidence that an unresponsive OS/resource always exits by the deadline.
+
+Current local verification:
+
+- Python comparator tests: 5 passed.
+- Python release/tooling tests: 5 passed.
+- `git diff --check`: passed.
+- Local .NET build/tests: unavailable; the Linux workspace has no `dotnet`, and
+  its configured network proxy refuses connections, preventing SDK installation.
+- GitHub common CI for the implementation: pending when this record was written.
+- Windows browser/net481 execution acceptance: deferred to the user's separate run.
+
+Do not mark the original browser acceptance checklist complete from these portable
+tests. The actual ChromeDriver stalled-command fixture, exact Windows process
+ownership, real Chrome/CDP health, and supported browser/runtime outcomes still
+require the separate Windows run. Keep this PR as a draft until that evidence is
+recorded; this change does not close #27 by itself.

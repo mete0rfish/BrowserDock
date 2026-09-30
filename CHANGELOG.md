@@ -6,6 +6,11 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Include queued WebDriver commands in the operation deadline, preserve caller
+  cancellation tokens, and bound failed-command recovery with one cleanup budget
+  (#27). Failed-attachment invalidation and shared disposal protect replacement
+  attachments and concurrent Stop/Dispose. Windows browser acceptance is pending.
+
 - Capture and validate one startup options snapshot and use it for Chrome launch,
   driver preparation, CDP scripts and subsequent operations (#26). Caller list
   mutations after capture no longer alter the running configuration. Custom patch

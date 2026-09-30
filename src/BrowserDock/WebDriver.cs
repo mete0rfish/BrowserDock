@@ -14,6 +14,7 @@ internal sealed class LoopbackExecutor(Uri address, TimeSpan timeout) : HttpComm
 internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : ICommandExecutor
 {
     private int detaching;
+    private int disposed;
     private long sent;
     internal long Sent => Interlocked.Read(ref sent);
     public string? LastFoundElementId { get; private set; }
@@ -40,10 +41,31 @@ internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : IComm
         return response;
     }
     private void Check() { if (Volatile.Read(ref detaching) != 0 || IsCurrent?.Invoke() == false) throw new StaleAttachmentException(); }
-    public void Dispose() { Detach(); inner.Dispose(); }
+    public void Dispose() { Detach(); if (Interlocked.Exchange(ref disposed, 1) == 0) inner.Dispose(); }
 }
 internal sealed class Attachment(OwnedProcess process, int port, DetachAwareCommandExecutor executor, RemoteWebDriver driver)
 {
+    private readonly object cleanupSync = new();
+    private bool ioStopped;
+    private Exception? ioStopFailure;
+    private Task? destruction;
+    // Cancellation and final disposal share one owner for the executor/process.
+    private void StopIo()
+    {
+        lock (cleanupSync)
+        {
+            if (!ioStopped)
+            {
+                ioStopped = true;
+                Executor.Detach();
+                var failures = new List<Exception>();
+                try { Process.Terminate(); } catch (Exception e) { failures.Add(e); }
+                try { Executor.Dispose(); } catch (Exception e) { failures.Add(e); }
+                if (failures.Count != 0) ioStopFailure = new AggregateException(failures);
+            }
+            if (ioStopFailure is not null) throw ioStopFailure;
+        }
+    }
     internal static ChromeOptions CreateOptions(Uri cdp) => new()
     {
         DebuggerAddress = $"127.0.0.1:{cdp.Port}",
@@ -58,23 +80,33 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     public string SessionId => Driver.SessionId.ToString();
     public async Task<T> InvokeAsync<T>(Func<RemoteWebDriver, T> action, CancellationToken token)
     {
-        var work = Task.Run(() => action(Driver));
+        token.ThrowIfCancellationRequested();
+        var work = Task.Run(() => { token.ThrowIfCancellationRequested(); return action(Driver); });
         try { return await work.WaitAsync(token).ConfigureAwait(false); }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException original)
         {
-            Executor.Detach(); Process.Terminate(); Executor.Dispose();
+            try { StopIo(); } catch (Exception cleanup) { original.Data["DriverCleanupFailure"] = cleanup; }
             _ = work.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             throw;
         }
     }
-    public async Task DestroyAsync(CancellationToken token)
+    public Task DestroyAsync(CancellationToken token)
     {
-        Executor.Detach();
-        Process.Terminate();
-        Executor.Dispose();
-        await Process.WaitAsync(token).ConfigureAwait(false);
-        await Task.Run(Driver.Dispose).WaitAsync(token).ConfigureAwait(false);
-        Process.Dispose();
+        Task owned;
+        lock (cleanupSync)
+        {
+            owned = destruction ??= DestroyCoreAsync();
+        }
+        // A caller's budget bounds its wait. The shared owner finishes disposal;
+        // Stop/Dispose can join that same work with their own remaining budget.
+        return owned.WaitAsync(token);
+    }
+    private async Task DestroyCoreAsync()
+    {
+        StopIo();
+        await Process.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try { await Task.Run(Driver.Dispose).ConfigureAwait(false); }
+        finally { Process.Dispose(); }
     }
     public static async Task<Attachment> CreateAsync(string path, Uri cdp, BrowserTimeouts timeouts, CancellationToken token)
     {
