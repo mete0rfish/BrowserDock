@@ -110,7 +110,7 @@ and [architecture cancellation rules](architecture.md#11-timeouts-and-cancellati
 
 ## Portable implementation and validation
 
-`CommandDeadlineTests` is shared by the Core and Framework test projects. It
+`CommandDeadlineTests` contains 22 cases shared by the Core and Framework test projects. It
 runs the real Browser command path through Core and Legacy guarded commands,
 using an in-memory W3C executor and a real owned fixture-host process. It does
 not start Chrome, perform Windows listener attribution, or establish real
@@ -146,7 +146,11 @@ Current local verification:
 - `git diff --check`: passed.
 - Local .NET build/tests: unavailable; the Linux workspace has no `dotnet`, and
   its configured network proxy refuses connections, preventing SDK installation.
-- GitHub common CI for the implementation: pending when this record was written.
+- GitHub common CI: passed for implementation commit
+  `16136005b17a289275f090b737997a81d357d822`; see
+  [Common contracts run 36792038812](https://github.com/mete0rfish/BrowserDock/actions/runs/36792038812).
+  Every solution build reported zero warnings and errors. The final secret scan
+  also passed: [run 36792038784](https://github.com/mete0rfish/BrowserDock/actions/runs/36792038784).
 - Windows browser/net481 execution acceptance: deferred to the user's separate run.
 
 Do not mark the original browser acceptance checklist complete from these portable
@@ -154,3 +158,26 @@ tests. The actual ChromeDriver stalled-command fixture, exact Windows process
 ownership, real Chrome/CDP health, and supported browser/runtime outcomes still
 require the separate Windows run. Keep this PR as a draft until that evidence is
 recorded; this change does not close #27 by itself.
+
+
+Actual common-CI outcomes (2026-10-01, Asia/Seoul):
+
+| Host/runtime | Core tests | Framework/Legacy tests |
+| --- | --- | --- |
+| Ubuntu / net8.0 | 75 passed, 0 skipped | 49 passed, 0 skipped |
+| Ubuntu / net10.0 | 75 passed, 0 skipped | 49 passed, 0 skipped |
+| Windows hosted CI / net8.0 | 74 passed, 1 skipped | 49 passed, 0 skipped |
+| Windows hosted CI / net10.0 | 74 passed, 1 skipped | 49 passed, 0 skipped |
+| Windows hosted CI / net481 | Not a Core test-project target | 49 passed, 0 skipped |
+
+The Windows-hosted skip is the pre-existing `RejectsReparsePointOwnedPaths`
+symlink-privilege test. All 22 command-regression cases executed in every listed
+test-project/runtime run. Hosted common CI excludes `TestCategory=Windows`; it
+is separate from the deferred interactive Windows 11 browser acceptance.
+The net481 job also passed release packing, the classic C# 7.3 package consumer,
+and Framework sample loading. No Windows-browser workflow was dispatched.
+
+The health snapshot is marked serializable because .NET Framework validates
+values assigned to `Exception.Data`; that compatibility fix was exercised by the
+same cancellation tests on net481. The validation commit above contains the final
+product/test source. Later evidence-only documentation commits do not change it.
