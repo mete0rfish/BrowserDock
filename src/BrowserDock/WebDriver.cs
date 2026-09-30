@@ -95,7 +95,13 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         Task owned;
         lock (cleanupSync)
         {
-            owned = destruction ??= DestroyCoreAsync();
+            if (destruction is null)
+            {
+                destruction = DestroyCoreAsync();
+                _ = destruction.ContinueWith(t => _ = t.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            owned = destruction;
         }
         // A caller's budget bounds its wait. The shared owner finishes disposal;
         // Stop/Dispose can join that same work with their own remaining budget.

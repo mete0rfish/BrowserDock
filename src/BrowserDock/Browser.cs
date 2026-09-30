@@ -215,7 +215,7 @@ public sealed class Browser : IAsyncDisposable
             await StageAsync("session-created", token).ConfigureAwait(false);
             await BindTargetAsync(token).ConfigureAwait(false);
             await ProbeAsync(token).ConfigureAwait(false);
-            if (!attachment.Process.Alive) throw new BrowserDockException(ErrorCategory.DriverProcessFailure, "Driver exited while binding target.");
+            if (attachment?.Process.Alive != true) throw new BrowserDockException(ErrorCategory.DriverProcessFailure, "Driver exited while binding target.");
             OpenAttachment();
         }
         catch (Exception original)
