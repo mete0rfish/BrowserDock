@@ -363,6 +363,108 @@ public sealed class CommandDeadlineTests
         finally { release.TrySetResult(true); }
     }
 
+    [TestCase(false, false, false), TestCase(true, false, false)]
+    [TestCase(false, true, false), TestCase(true, true, false)]
+    [TestCase(false, false, true), TestCase(true, false, true)]
+    [TestCase(false, true, true), TestCase(true, true, true)]
+    public async Task CancellationBeforeActionStartsPreservesAttachment(bool legacy, bool timeout, bool queuedWorker)
+    {
+        var entered = Signal(); var release = Signal();
+        await using var fixture = await CommandFixture.StartAsync(
+            commandBudget: timeout ? TimeSpan.FromMilliseconds(200) : TimeSpan.FromSeconds(5),
+            stage: async (name, token) =>
+            {
+                if (!queuedWorker && name == "command-dispatch")
+                { entered.TrySetResult(true); await TaskCompatibility.WaitAsync(release.Task, token); }
+            });
+        if (queuedWorker) fixture.Attachment.BeforeDispatchForTest = async () =>
+        { entered.TrySetResult(true); await release.Task; };
+        using var caller = new CancellationTokenSource();
+        var epoch = fixture.Browser.AttachmentEpoch;
+        var pending = fixture.Title(legacy, caller.Token);
+        try
+        {
+            await Bounded(entered.Task);
+            if (!timeout) caller.Cancel();
+            var error = await Catch(pending);
+            if (timeout) AssertTimeout(error, legacy);
+            else
+            {
+                Assert.That(error, Is.InstanceOf<OperationCanceledException>());
+                Assert.That(((OperationCanceledException)error).CancellationToken, Is.EqualTo(caller.Token));
+                Assert.That(error.Data["CleanupFailures"], Is.Empty);
+            }
+            Assert.Multiple(() =>
+            {
+                Assert.That(fixture.Executor.Commands, Is.Zero);
+                Assert.That(fixture.Executor.Disposals, Is.Zero);
+                Assert.That(fixture.Attachment.Process.Alive, Is.True);
+                Assert.That(fixture.Browser.AttachmentEpoch, Is.EqualTo(epoch));
+                Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.WebDriverAttached));
+                Assert.That(fixture.Browser.CommandsGateForTest.CurrentCount, Is.EqualTo(1));
+            });
+        }
+        finally { release.TrySetResult(true); }
+        if (queuedWorker)
+            Assert.ThrowsAsync<OperationCanceledException>(async () => await Bounded(fixture.Attachment.InvocationForTest!));
+        fixture.Attachment.BeforeDispatchForTest = null;
+        Assert.That(fixture.Executor.Commands, Is.Zero, "A worker released after cancellation must not dispatch late.");
+        Assert.That(await Bounded(fixture.Title(legacy)), Is.EqualTo("fixture"));
+        Assert.That(fixture.Executor.Commands, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ExecutorCleanupFailureCanBeRetriedByOneConcurrentOwner()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var original = new InvalidOperationException("executor cleanup failed");
+        fixture.Executor.DisposeFailure = original;
+        var error = Assert.ThrowsAsync<AggregateException>(async () =>
+            await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None)));
+        Assert.That(error!.Flatten().InnerExceptions, Does.Contain(original));
+        Assert.That(fixture.Attachment.Process.Alive, Is.False, "Executor failure must not skip process cleanup.");
+        Assert.That(fixture.Executor.Disposals, Is.Zero);
+        var attempts = fixture.Executor.DisposeCalls;
+        fixture.Executor.DisposeFailure = null;
+        var entered = Signal(); var release = Signal();
+        fixture.Executor.DisposeHook = () => { entered.TrySetResult(true); release.Task.GetAwaiter().GetResult(); };
+        var first = fixture.Attachment.DestroyAsync(CancellationToken.None);
+        try
+        {
+            await Bounded(entered.Task);
+            using var canceled = new CancellationTokenSource(); canceled.Cancel();
+            var cancellation = Assert.CatchAsync<OperationCanceledException>(async () =>
+                await Bounded(fixture.Attachment.DestroyAsync(canceled.Token)));
+            Assert.That(cancellation!.CancellationToken, Is.EqualTo(canceled.Token));
+            var second = fixture.Attachment.DestroyAsync(CancellationToken.None);
+            release.TrySetResult(true);
+            await Bounded(Task.WhenAll(first, second));
+        }
+        finally { release.TrySetResult(true); }
+        await Bounded(fixture.Browser.StopAsync().AsTask());
+        Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.Stopped));
+        Assert.That(fixture.Executor.Disposals, Is.EqualTo(1));
+        Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(attempts + 1));
+    }
+
+    [Test]
+    public async Task TerminationFailureRetainsProcessForStopRetryWithoutRepeatingDisposal()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var original = new InvalidOperationException("termination failed");
+        fixture.Attachment.TerminateForTest = () => throw original;
+        var error = Assert.ThrowsAsync<AggregateException>(async () =>
+            await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None)));
+        Assert.That(error!.Flatten().InnerExceptions, Does.Contain(original));
+        Assert.That(fixture.Attachment.Process.Alive, Is.True);
+        Assert.That(fixture.Executor.Disposals, Is.EqualTo(1), "Other cleanup steps must still run.");
+        fixture.Attachment.TerminateForTest = null;
+        await Bounded(Task.WhenAll(fixture.Browser.StopAsync().AsTask(), fixture.Browser.DisposeAsync().AsTask()));
+        Assert.That(fixture.Browser.State, Is.EqualTo(BrowserState.Stopped));
+        Assert.That(fixture.Attachment.Process.Alive, Is.False);
+        Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(1), "Successful cleanup steps must not repeat.");
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
@@ -458,9 +560,12 @@ public sealed class CommandDeadlineTests
 
     private sealed class MemoryExecutor : ICommandExecutor
     {
-        private int commands, disposals;
+        private int commands, disposals, disposeCalls;
         public int Commands => Volatile.Read(ref commands);
         public int Disposals => Volatile.Read(ref disposals);
+        public int DisposeCalls => Volatile.Read(ref disposeCalls);
+        public Exception? DisposeFailure { get; set; }
+        public Action? DisposeHook { get; set; }
         public Func<Task<string>> Title { get; set; } = () => Task.FromResult("fixture");
         public bool TryAddCommand(string name, CommandInfo? info) => false;
         public Response Execute(Command command)
@@ -471,6 +576,12 @@ public sealed class CommandDeadlineTests
             return new Response(command.SessionId?.ToString(), Title().GetAwaiter().GetResult(), WebDriverResult.Success);
         }
         public Task<Response> ExecuteAsync(Command command) => Task.FromResult(Execute(command));
-        public void Dispose() => Interlocked.Increment(ref disposals);
+        public void Dispose()
+        {
+            Interlocked.Increment(ref disposeCalls);
+            DisposeHook?.Invoke();
+            if (DisposeFailure is { } failure) throw failure;
+            Interlocked.Increment(ref disposals);
+        }
     }
 }

@@ -14,7 +14,8 @@ internal sealed class LoopbackExecutor(Uri address, TimeSpan timeout) : HttpComm
 internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : ICommandExecutor
 {
     private int detaching;
-    private int disposed;
+    private readonly object disposalSync = new();
+    private bool disposed;
     private long sent;
     internal long Sent => Interlocked.Read(ref sent);
     public string? LastFoundElementId { get; private set; }
@@ -41,29 +42,52 @@ internal sealed class DetachAwareCommandExecutor(ICommandExecutor inner) : IComm
         return response;
     }
     private void Check() { if (Volatile.Read(ref detaching) != 0 || IsCurrent?.Invoke() == false) throw new StaleAttachmentException(); }
-    public void Dispose() { Detach(); if (Interlocked.Exchange(ref disposed, 1) == 0) inner.Dispose(); }
+    public void Dispose()
+    {
+        Detach();
+        lock (disposalSync)
+        {
+            if (disposed) return;
+            inner.Dispose();
+            disposed = true;
+        }
+    }
 }
 internal sealed class Attachment(OwnedProcess process, int port, DetachAwareCommandExecutor executor, RemoteWebDriver driver)
 {
     private readonly object cleanupSync = new();
-    private bool ioStopped;
-    private Exception? ioStopFailure;
+    private readonly object ioSync = new();
+    private bool processTerminated, executorDisposed, processExited, driverDisposed, processDisposed;
     private Task? destruction;
+    internal Func<Task>? BeforeDispatchForTest { get; set; }
+    internal Task? InvocationForTest { get; private set; }
+    internal Action? TerminateForTest { get; set; }
+    internal sealed class CommandExecution
+    {
+        // 0: queued, 1: started, 2: canceled before start. Once an await ends,
+        // a queued worker must never dispatch later against a retained attachment.
+        private int state;
+        public bool Started => Volatile.Read(ref state) == 1;
+        public void Start(CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (Interlocked.CompareExchange(ref state, 1, 0) != 0) throw new OperationCanceledException(token);
+        }
+        public bool CancelBeforeStart() => Interlocked.CompareExchange(ref state, 2, 0) != 1;
+    }
     // Cancellation and final disposal share one owner for the executor/process.
     private void StopIo()
     {
-        lock (cleanupSync)
+        lock (ioSync)
         {
-            if (!ioStopped)
-            {
-                ioStopped = true;
-                Executor.Detach();
-                var failures = new List<Exception>();
-                try { Process.Terminate(); } catch (Exception e) { failures.Add(e); }
-                try { Executor.Dispose(); } catch (Exception e) { failures.Add(e); }
-                if (failures.Count != 0) ioStopFailure = new AggregateException(failures);
-            }
-            if (ioStopFailure is not null) throw ioStopFailure;
+            Executor.Detach();
+            var failures = new List<Exception>();
+            if (!processTerminated)
+                try { if (TerminateForTest is { } terminate) terminate(); else Process.Terminate(); processTerminated = true; }
+                catch (Exception e) { failures.Add(e); }
+            if (!executorDisposed)
+                try { Executor.Dispose(); executorDisposed = true; } catch (Exception e) { failures.Add(e); }
+            if (failures.Count != 0) throw new AggregateException(failures);
         }
     }
     internal static ChromeOptions CreateOptions(Uri cdp) => new()
@@ -78,14 +102,24 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     public DetachAwareCommandExecutor Executor { get; } = executor;
     public RemoteWebDriver Driver { get; } = driver;
     public string SessionId => Driver.SessionId.ToString();
-    public async Task<T> InvokeAsync<T>(Func<RemoteWebDriver, T> action, CancellationToken token)
+    public async Task<T> InvokeAsync<T>(Func<RemoteWebDriver, T> action, CancellationToken token, CommandExecution? execution = null)
     {
         token.ThrowIfCancellationRequested();
-        var work = Task.Run(() => { token.ThrowIfCancellationRequested(); return action(Driver); });
+        execution ??= new();
+        using var cancellation = token.Register(() => execution.CancelBeforeStart());
+        var beforeDispatch = BeforeDispatchForTest;
+        var work = Task.Run(async () =>
+        {
+            if (beforeDispatch is not null) await beforeDispatch().ConfigureAwait(false);
+            execution.Start(token);
+            return action(Driver);
+        });
+        if (beforeDispatch is not null) InvocationForTest = work;
         try { return await work.WaitAsync(token).ConfigureAwait(false); }
         catch (OperationCanceledException original)
         {
-            try { StopIo(); } catch (Exception cleanup) { original.Data["DriverCleanupFailure"] = cleanup; }
+            if (!execution.CancelBeforeStart())
+                try { StopIo(); } catch (Exception cleanup) { original.Data["DriverCleanupFailure"] = cleanup; }
             _ = work.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             throw;
         }
@@ -95,9 +129,9 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         Task owned;
         lock (cleanupSync)
         {
-            if (destruction is null)
+            if (destruction is null || destruction.IsFaulted || destruction.IsCanceled)
             {
-                destruction = DestroyCoreAsync();
+                destruction = Task.Run(DestroyCoreAsync);
                 _ = destruction.ContinueWith(t => _ = t.Exception, CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
@@ -109,10 +143,21 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     }
     private async Task DestroyCoreAsync()
     {
-        StopIo();
-        await Process.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try { await Task.Run(Driver.Dispose).ConfigureAwait(false); }
-        finally { Process.Dispose(); }
+        var failures = new List<Exception>();
+        try { StopIo(); } catch (Exception e) { failures.Add(e); }
+        bool canWait;
+        lock (ioSync) canWait = processTerminated || !Process.Alive;
+        if (!processExited && canWait)
+            try { await Process.WaitAsync(CancellationToken.None).ConfigureAwait(false); processExited = true; }
+            catch (Exception e) { failures.Add(e); }
+        if (!driverDisposed)
+            try { await Task.Run(Driver.Dispose).ConfigureAwait(false); driverDisposed = true; }
+            catch (Exception e) { failures.Add(e); }
+        // Keep the process handle if termination failed while it is still alive,
+        // so a later cleanup owner can retry the remaining work.
+        if (processExited && !processDisposed)
+            try { Process.Dispose(); processDisposed = true; } catch (Exception e) { failures.Add(e); }
+        if (failures.Count != 0) throw new AggregateException(failures);
     }
     public static async Task<Attachment> CreateAsync(string path, Uri cdp, BrowserTimeouts timeouts, CancellationToken token)
     {

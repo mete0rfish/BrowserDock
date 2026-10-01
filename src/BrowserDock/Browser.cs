@@ -430,7 +430,7 @@ public sealed class Browser : IAsyncDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token);
         using var deadline = new Deadline(options.Timeouts.Command, linked.Token);
         var acquired = false;
-        var admitted = false;
+        var execution = new Attachment.CommandExecution();
         Attachment? used = null;
         long? closedEpoch = null;
         Exception failure;
@@ -451,9 +451,9 @@ public sealed class Browser : IAsyncDisposable
             }
             using (entered)
             {
-                admitted = true;
+                await StageAsync("command-dispatch", deadline.Token).ConfigureAwait(false);
                 diagnostics.Write(1000, "WebDriver command started", State, SessionGeneration, epoch, id);
-                return await used.InvokeAsync(action, deadline.Token).ConfigureAwait(false);
+                return await used.InvokeAsync(action, deadline.Token, execution).ConfigureAwait(false);
             }
         }
         catch (Exception original)
@@ -471,7 +471,7 @@ public sealed class Browser : IAsyncDisposable
                     error = new BrowserDockException(ErrorCategory.OperationTimedOut, "WebDriver command exceeded its deadline.", original);
             }
             else error = Attachment.Map(original);
-            if (admitted && used is not null && (original is OperationCanceledException ||
+            if (execution.Started && used is not null && (original is OperationCanceledException ||
                 error is BrowserDockException { Category: ErrorCategory.AttachmentLost or ErrorCategory.OperationTimedOut }))
             {
                 used.Executor.Detach();
@@ -483,7 +483,7 @@ public sealed class Browser : IAsyncDisposable
         }
         finally { if (acquired) commands.Release(); }
 
-        if (admitted && used is not null && (failure is OperationCanceledException ||
+        if (execution.Started && used is not null && (failure is OperationCanceledException ||
             error is BrowserDockException { Category: ErrorCategory.AttachmentLost or ErrorCategory.OperationTimedOut }))
             await RecoverCommandAsync(used, closedEpoch, cleanupErrors).ConfigureAwait(false);
         if (failure.Data["DriverCleanupFailure"] is Exception ioFailure) cleanupErrors.Add($"driver I/O: {ioFailure.GetType().Name}");
