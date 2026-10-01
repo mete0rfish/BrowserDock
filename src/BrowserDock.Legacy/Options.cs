@@ -65,10 +65,16 @@ public sealed class PatchPattern
 public sealed class NavigationOptions
 {
     public NavigationMode Mode { get; set; }
+    /// <summary>Creates a new attachment after Detached navigation. Other modes reject true.</summary>
     public bool ReconnectAfterNavigation { get; set; }
     public NavigationWaitUntil WaitUntil { get; set; } = NavigationWaitUntil.Load;
     public TargetKey? Target { get; set; }
     public TargetPolicy TargetPolicy { get; set; }
+    /// <summary>
+    /// Post-navigation delay, only for Detached with reconnection. Null/zero adds no hold.
+    /// Must be nonnegative and less than BrowserTimeouts.Navigation; consumes that budget,
+    /// independently of the subsequent BrowserTimeouts.Reconnect attachment timeout.
+    /// </summary>
     public TimeSpan? ReconnectDelay { get; set; }
     internal Core.NavigationOptions Snapshot() => new()
     {

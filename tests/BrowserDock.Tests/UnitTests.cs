@@ -56,8 +56,8 @@ public sealed class UnitTests
     public void NavigationMatrixRejectsContradictions(BrowserState state, NavigationMode mode, bool reconnect, bool accepted)
     {
         var options = new NavigationOptions { Mode = mode, ReconnectAfterNavigation = reconnect };
-        if (accepted) Assert.DoesNotThrow(() => Browser.ValidateNavigation(state, options));
-        else Assert.Throws<BrowserDockException>(() => Browser.ValidateNavigation(state, options));
+        if (accepted) Assert.DoesNotThrow(() => Browser.ValidateNavigation(state, options, TimeSpan.FromSeconds(60)));
+        else Assert.Throws<BrowserDockException>(() => Browser.ValidateNavigation(state, options, TimeSpan.FromSeconds(60)));
     }
     internal sealed class Recipe(int count = 1) : IDriverPatchStrategy
     {

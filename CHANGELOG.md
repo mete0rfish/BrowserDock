@@ -6,6 +6,10 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Reject ineffective navigation reconnect options and delays that cannot fit the
+  navigation budget before probing or mutating browser state (#28). Core and
+  Legacy share the same validation; valid navigation modes retain their behavior.
+
 - Capture and validate one startup options snapshot and use it for Chrome launch,
   driver preparation, CDP scripts and subsequent operations (#26). Caller list
   mutations after capture no longer alter the running configuration. Custom patch

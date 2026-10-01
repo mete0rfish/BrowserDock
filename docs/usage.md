@@ -62,6 +62,12 @@ If `ChromeBinaryPath` is omitted, the library searches standard installation loc
   boundary. Logger instances are shared for the browser lifetime, never cloned
   or frozen; configure them for concurrent use.
 - `Standard` navigation requires attached WebDriver. `Detached` disconnects first, navigates through CDP, and creates a new session when `ReconnectAfterNavigation=true`.
+- `ReconnectAfterNavigation=true` requires `Detached`. Only that combination
+  accepts `ReconnectDelay`, which starts after navigation completion. Null/zero
+  adds no hold; negative delays or delays at least as long as the captured
+  `BrowserTimeouts.Navigation` fail with `ConfigurationError` before browser
+  side effects. A smaller delay can still exhaust the remaining operation budget.
+  The subsequent attachment also has its own `BrowserTimeouts.Reconnect` cap.
 - `CdpOnly` navigation requires explicit WebDriver disconnection. It does not disconnect or reconnect implicitly.
 - Starting `DisconnectWebDriverAsync()` invalidates previous leases and elements. Old references fail locally even before reconnection succeeds.
 - `ElementRef.ReacquireAsync()` returns a new reference from the original locator and frame path. DOM replacement within one session produces `StaleDomElement`; attachment replacement produces `StaleAttachment`.
@@ -73,6 +79,32 @@ If `ChromeBinaryPath` is omitted, the library searches standard installation loc
 - `ExecuteCdpAsync()` is an advanced API. Browser/Target commands use the browser connection; other commands use the selected page session. Direct tab/browser closure and script execution can have broader effects than the facade's state and URL policies.
 - `NetworkIdle` is a best-effort completion condition requiring 500 ms without tracked requests. Persistent requests may cause a navigation timeout.
 - Cancellation does not undo navigation already sent to Chrome. Inspect `NavigationCanceledException.BrowserMayHaveAdvanced` or `BrowserDockException.BrowserMayHaveAdvanced`.
+
+For a post-navigation delay followed by a new attachment, use these options.
+Core:
+
+```csharp
+await browser.NavigateAsync(url, new BrowserDock.NavigationOptions
+{
+    Mode = BrowserDock.NavigationMode.Detached,
+    ReconnectAfterNavigation = true,
+    ReconnectDelay = TimeSpan.FromSeconds(1)
+});
+```
+
+Legacy (C# 7.3), with a `BrowserDock.Legacy.Browser` instance:
+
+```csharp
+await browser.NavigateAsync(url, new BrowserDock.Legacy.NavigationOptions
+{
+    Mode = BrowserDock.Legacy.NavigationMode.Detached,
+    ReconnectAfterNavigation = true,
+    ReconnectDelay = TimeSpan.FromSeconds(1)
+});
+```
+
+To stay disconnected, set `ReconnectAfterNavigation=false` and leave
+`ReconnectDelay` null. Neither mode silently ignores a requested reconnect or hold.
 
 ## Patching and logging
 

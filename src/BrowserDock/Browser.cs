@@ -299,14 +299,34 @@ public sealed class Browser : IAsyncDisposable
         if (!url.IsAbsoluteUri || !new[] { "http", "https", "about", "data" }.Concat(options.AdditionalUrlSchemes).Contains(url.Scheme, StringComparer.OrdinalIgnoreCase))
             throw new BrowserDockException(ErrorCategory.ConfigurationError, "URL scheme is not enabled.");
     }
-    internal static void ValidateNavigation(BrowserState state, NavigationOptions options)
+    // Portable preflight fixture: no browser, driver, profile or CDP connection.
+    // StageHook can stop accepted requests immediately before the health probe.
+    internal static Browser NavigationFixtureForTest(BrowserOptions options, BrowserState initialState)
     {
-        if (!Enum.IsDefined(typeof(NavigationMode), options.Mode) || !Enum.IsDefined(typeof(NavigationWaitUntil), options.WaitUntil) || !Enum.IsDefined(typeof(TargetPolicy), options.TargetPolicy) || options.ReconnectDelay < TimeSpan.Zero)
+        var browser = new Browser(CaptureOptions(options)) { state = initialState };
+        if (initialState == BrowserState.WebDriverAttached)
+        {
+            _ = browser.admission.Open();
+            browser.generation = 1;
+        }
+        return browser;
+    }
+    internal static void ValidateNavigation(BrowserState state, NavigationOptions options, TimeSpan navigationBudget)
+    {
+        if (!Enum.IsDefined(typeof(NavigationMode), options.Mode) || !Enum.IsDefined(typeof(NavigationWaitUntil), options.WaitUntil) || !Enum.IsDefined(typeof(TargetPolicy), options.TargetPolicy))
             throw new BrowserDockException(ErrorCategory.ConfigurationError, "Invalid navigation options.");
+        if (options.ReconnectAfterNavigation && options.Mode != NavigationMode.Detached)
+            throw new BrowserDockException(ErrorCategory.ConfigurationError, "ReconnectAfterNavigation requires Detached navigation.");
+        if (options.ReconnectDelay is { } delay)
+        {
+            if (options.Mode != NavigationMode.Detached || !options.ReconnectAfterNavigation)
+                throw new BrowserDockException(ErrorCategory.ConfigurationError, "ReconnectDelay requires Detached navigation with ReconnectAfterNavigation.");
+            if (delay < TimeSpan.Zero || delay >= navigationBudget)
+                throw new BrowserDockException(ErrorCategory.ConfigurationError, "ReconnectDelay must be nonnegative and less than the Navigation timeout.");
+        }
         if ((options.Mode == NavigationMode.Standard && (state != BrowserState.WebDriverAttached || options.TargetPolicy != TargetPolicy.CurrentControlled)) ||
             (options.Mode == NavigationMode.Detached && state is not (BrowserState.WebDriverAttached or BrowserState.CdpOnly)) ||
-            (options.Mode == NavigationMode.CdpOnly && (state is not (BrowserState.CdpOnly or BrowserState.ChromeReady) || options.ReconnectAfterNavigation)) ||
-            (options.Mode != NavigationMode.Detached && options.ReconnectDelay is not null))
+            (options.Mode == NavigationMode.CdpOnly && state is not (BrowserState.CdpOnly or BrowserState.ChromeReady)))
             throw new BrowserDockException(ErrorCategory.ConfigurationError, "Navigation options contradict the current browser state.");
     }
     public ValueTask<NavigationResult> NavigateAsync(Uri url, NavigationOptions? options = null, CancellationToken cancellationToken = default)
@@ -318,7 +338,8 @@ public sealed class Browser : IAsyncDisposable
         return OperationAsync(async token =>
         {
             if (valid?.Invoke() == false) throw new StaleAttachmentException();
-            ValidateNavigation(State, navigation);
+            ValidateNavigation(State, navigation, options.Timeouts.Navigation);
+            await StageAsync("navigation-probe", token).ConfigureAwait(false);
             await ProbeAsync(token).ConfigureAwait(false);
             if (navigation.Target is not null) await cdp!.SelectAsync(navigation.Target.Value, token).ConfigureAwait(false);
             if (navigation.Mode == NavigationMode.Detached && navigation.ReconnectAfterNavigation && cdp!.Snapshot().Count > 1 && !cdp.ExplicitSelection) throw new AmbiguousTargetException();
