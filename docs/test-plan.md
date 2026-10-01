@@ -68,6 +68,7 @@ The current runner includes the subsequently added Legacy net8 target:
 |---|---|---|
 | Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Every PR |
 | Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Every PR |
+| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Every PR and main push |
 | First browser smoke | Interactive Windows 11 x64, CfT Stable, Core net10.0 | First |
 | Full browser matrix | Same environment; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Regular regression/release |
 | Browser-version matrix | Those five combinations × CfT Stable/Stable-1 | Release |
@@ -79,7 +80,7 @@ Chrome/driver must be M115+ with matching `MAJOR.MINOR.BUILD`. Prefer identical 
 
 Record BrowserDock SHA, SeleniumBase SHA/package/Python dependency list, OS build, TFM, full browser/driver versions and SHA256, launch options, patch mode, and fixture version. SeleniumBase may modify a UC driver, so record vendor and executed artifact versions/hashes separately. Do not force both implementations to share a patched binary.
 
-Each test uses its own profile/browser. Run ordinary browser tests serially; reserve 20-instance concurrency for Stress. Separate hosted Windows common-test passes from interactive Windows 11 browser acceptance.
+Each test uses its own profile/browser. Run ordinary browser tests serially; reserve 20-instance concurrency for Stress. Distinguish common-test results, hosted Windows Server browser regressions, and interactive Windows 11 browser acceptance.
 
 ## 4. Execution sequence
 
@@ -117,6 +118,30 @@ It intentionally stays disconnected for 30 seconds, checking Chrome identity/pro
 ```
 
 Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script stops at failure; record later TFMs without results as not run. Preserve TRX and `fixture.json` using separate directories for repeats.
+
+#### GitHub-hosted browser regressions
+
+`windows-hosted-browser.yml` runs on pull requests, pushes to main, and manual
+workflow dispatch. It uses GitHub's `windows-2025` x64 image without a self-hosted
+runner or the `windows-browser` deployment environment. The fixture installer
+downloads the official win64 Chrome for Testing and ChromeDriver archives at
+version `154.0.8037.57`, verifies both executable versions, and records download
+URLs and SHA256 values. The version is pinned in the workflow, not resolved from
+the runner's installed Chrome or a moving Stable channel.
+
+The job invokes the full normal suite with `-FixtureKind GitHubHosted`, including
+common regressions and actual browser tests across all five combinations above.
+Chrome keeps its existing headed launch mode; no headless or sandbox overrides
+are added. Required tests must execute and pass; zero tests, unexpected skips,
+and missing TRX fail the run. Stress remains opt-in through the manual input.
+
+Download the `windows-hosted-browser-<run-id>-<attempt>` artifact for the TRX,
+reference observations, `fixture.json`, and `downloads.json`. Fixture metadata
+includes the tested Git commit and worktree status, actual OS name/build, runner
+image/version, runtime inventory, and browser versions/hashes. These are Windows
+Server regression results, not a Windows 11 compatibility claim. They do not
+satisfy the separate Windows 11 workflow required by the release publication
+gate, or establish real-browser coverage for scenarios tested only with mocks.
 
 ### Step 4 — Compare the same local pages with SeleniumBase
 

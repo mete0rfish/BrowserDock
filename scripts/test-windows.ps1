@@ -2,11 +2,12 @@ param(
     [Parameter(Mandatory=$true)][string]$Chrome,
     [Parameter(Mandatory=$true)][string]$Driver,
     [switch]$Stress,
+    [ValidateSet('Windows11', 'GitHubHosted')][string]$FixtureKind = 'Windows11',
     [string]$Results = ".artifacts/windows/$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))"
 )
 $ErrorActionPreference = "Stop"
-if (-not $IsWindows -or [Environment]::OSVersion.Version.Build -lt 22000 -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne "X64") {
-    throw "Use PowerShell 7 on Windows 11 x64 with an interactive desktop."
+if (-not $IsWindows -or [Environment]::OSVersion.Version.Build -lt 22000 -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne "X64") {
+    throw "Use PowerShell 7 x64 on Windows build 22000 or later (Windows 11 or the hosted Windows Server fixture)."
 }
 $frameworkRelease = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release
 if ($frameworkRelease -lt 533320) { throw "Install the .NET Framework 4.8.1 runtime before running Framework tests." }
@@ -24,7 +25,12 @@ try {
     if (-not $Stress) { $filter += '&TestCategory!=Stress' }
     $metadata = @{
         DateUtc = [DateTime]::UtcNow.ToString("o")
+        FixtureKind = $FixtureKind
+        OSName = (Get-CimInstance Win32_OperatingSystem).Caption
         OS = [Environment]::OSVersion.ToString()
+        UserInteractive = [Environment]::UserInteractive
+        RunnerImage = $env:ImageOS
+        RunnerImageVersion = $env:ImageVersion
         ChromeVersion = (Get-Item $env:BROWSERDOCK_CHROME).VersionInfo.ProductVersion
         DriverVersion = (& $env:BROWSERDOCK_DRIVER --version)
         ChromeHash = (Get-FileHash $env:BROWSERDOCK_CHROME -Algorithm SHA256).Hash
