@@ -97,9 +97,15 @@ On a prepared Windows 11 desktop:
 # Add -Stress for 100 lifecycle cycles and 20 concurrent browsers.
 ```
 
-Pull requests also run [Windows hosted browser tests](.github/workflows/windows-hosted-browser.yml)
-on GitHub's `windows-2025` runners with a pinned Chrome for Testing/ChromeDriver
-pair. This includes real browser tests and the common regressions across all five
+All GitHub Actions workflows use manual `workflow_dispatch` triggers, including
+common contracts, secret scanning, browser tests, and package/release workflows.
+In **Actions**, select a workflow, choose **Run workflow**, and select the branch
+to test. The workflow file must exist on the default branch for manual dispatch
+to be available. Pushes and pull-request updates do not start these workflows.
+
+The manual [Windows hosted browser tests](.github/workflows/windows-hosted-browser.yml)
+run on GitHub's `windows-2025` runners with a pinned Chrome for Testing/ChromeDriver
+pair. They include real browser tests and common regressions across all five
 runtime/project combinations. Results identify Windows Server separately from
 Windows 11 desktop acceptance; see the [hosted CI procedure](docs/test-plan.md#github-hosted-browser-regressions).
 
