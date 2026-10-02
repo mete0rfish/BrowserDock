@@ -8,6 +8,7 @@
     <PlatformTarget Condition="'$(TargetFramework)' == 'net481'">x64</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
     <Compile Include="../Shared/StartupSnapshotTests.cs" Link="StartupSnapshotTests.cs" />
     <Compile Include="../Shared/OptionsCaptureTests.cs" Link="OptionsCaptureTests.cs" />
     <Compile Include="../Shared/NavigationOptionsTests.cs" Link="NavigationOptionsTests.cs" />

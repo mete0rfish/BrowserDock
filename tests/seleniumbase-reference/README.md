@@ -2,6 +2,14 @@
 
 Run on an interactive Windows 11 x64 desktop. The shared fixture covers ordinary interaction (SB-01), same-document disconnect/connect (SB-02), detached navigation replacing a tab (SB-03), and CDP-only navigation (SB-04). It does not visit external sites.
 
+**Current coverage:** The .NET SB-03/SB-04 cases are removed pending diagnosis and
+restoration in [#41](https://github.com/mete0rfish/BrowserDock/issues/41).
+`ReferenceTests` currently emits only SB-01/SB-02 results. The manifest, Python
+scenarios, and comparator still require all four scenarios, so the full comparison
+command below fails for missing .NET results until those cases are restored.
+
+The [compatibility matrix](../../docs/seleniumbase-compatibility.md) defines the selected phased APIs and row-specific acceptance requirements. SB-01–04 cover only the subsets listed there; they do not verify full UC ordering/timing, high-level interactions, native input, Pure CDP startup or real patch parity. #36 tracks the expanded differential evidence. The additional acceptance cases are not implemented scenarios in this runner.
+
 SeleniumBase is pinned to **4.53.7**, verified against `seleniumbase/__version__.py` and the Driver/UC call paths at specification commit `4ee7dfc4ae83c19385f5ac129f2cda0cfa863d80`. Install the PyPI release; each run records transitive dependencies through `pip freeze` in `fixture.json`. Preserve that list as a separate lock file for exact environment reproduction.
 
 ```powershell

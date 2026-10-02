@@ -23,6 +23,17 @@ internal sealed class Admission
     private TaskCompletionSource<bool> drained = NewSource();
     private static TaskCompletionSource<bool> NewSource() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     public long Epoch { get { lock (sync) return epoch; } }
+    public bool IsOpen { get { lock (sync) return open; } }
+    public bool TryClose(long expected, out long closedEpoch)
+    {
+        lock (sync)
+        {
+            closedEpoch = epoch;
+            if (!open || epoch != expected) return false;
+            closedEpoch = ++epoch; open = false;
+            return true;
+        }
+    }
     public long Open() { lock (sync) { epoch++; open = true; return epoch; } }
     public Task Close()
     {

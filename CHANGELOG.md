@@ -10,6 +10,13 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
   navigation budget before probing or mutating browser state (#28). Core and
   Legacy share the same validation; valid navigation modes retain their behavior.
 
+- Include queued WebDriver commands in the operation deadline, preserve caller
+  cancellation tokens, and bound failed-command recovery with one cleanup budget
+  (#27). Failed-attachment invalidation and shared disposal protect replacement
+  attachments and concurrent Stop/Dispose. Cancellation before execution retains
+  the attachment; failed resource cleanup can retry incomplete steps without
+  repeating completed disposal. Windows browser acceptance is pending.
+
 - Capture and validate one startup options snapshot and use it for Chrome launch,
   driver preparation, CDP scripts and subsequent operations (#26). Caller list
   mutations after capture no longer alter the running configuration. Custom patch

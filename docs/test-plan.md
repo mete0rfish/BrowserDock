@@ -12,6 +12,30 @@ Added admission synchronization/remote-call rejection, driver cleanup deadlines,
 
 The steps below preserve the original goals and additional verification criteria. Verify Windows browser execution, actual SeleniumBase comparisons, and PowerShell in the supported environment. Cross-process profile/cache contention, every fault point, individual handle attribution, and real patch recipes require further validation. Adding instrumentation is not an acceptance pass. Historical status tables below describe the plan's original baseline; use the implementation record for later results.
 
+### Browser cases removed pending investigation
+
+[Issue #41](https://github.com/mete0rfish/BrowserDock/issues/41) records intermittent
+failures on the same PR #39 source and tracks diagnosis and restoration of six
+cases removed from the test suite:
+
+- Core reference scenarios `SharedScenarioMatchesManifest("SB-03")` and `("SB-04")`.
+- Core startup cancellation cases `AC06_StartupCancellationRollsBack("driver-start")`
+  and `("session-created")`.
+- Core `CallerProfileAndCanceledStopPreserveSentinelAndReleaseLock`.
+- Legacy `FacadeDetachedNavigationSupportsRedirectsAndSameDocument(DOMContentLoaded)`.
+
+Other parameter values, Legacy startup cancellation cases, and portable command
+regressions remain. These removals apply to every TFM of the respective projects;
+they are coverage gaps, not evidence that the underlying behavior is fixed.
+Normal Windows runs execute the remaining discovered suite. Selected-test
+failure/skip checks and manual workflow triggers retain their existing behavior.
+
+The .NET reference runner currently produces SB-01/SB-02 observations only.
+The four-scenario manifest, Python scenarios, and comparator remain unchanged,
+so a full SB-01–SB-04 comparison fails for missing .NET observations until the
+removed scenarios are restored. The comparison and release criteria below remain
+the acceptance goals; passing the reduced suite does not satisfy those gaps.
+
 ## 1. Comparison scope and evaluation
 
 The [SeleniumBase compatibility matrix](seleniumbase-compatibility.md) now defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts under #24/#25. Its row-specific gaps and evidence rules extend this original plan; the four existing scenarios remain a subset. #36 must add timeline, duration, target/frame, value, cancellation and cleanup observations before any new equivalence claim. This scope update is not an execution result.
