@@ -380,7 +380,7 @@ public sealed class WebDriverLease : IAsyncDisposable
 API rules:
 
 - `Browser` exposes lifecycle mutations only through async methods.
-- `NavigationOptions` defaults to `Mode=Standard`, `WaitUntil=Load`, `ReconnectAfterNavigation=false`, and `TargetPolicy=CurrentControlled`. Meaningless or contradictory combinations are ignored or rejected according to the navigation matrix below.
+- `NavigationOptions` defaults to `Mode=Standard`, `WaitUntil=Load`, `ReconnectAfterNavigation=false`, and `TargetPolicy=CurrentControlled`. Meaningless or contradictory combinations fail with `ConfigurationError` according to the navigation matrix below, before health probing, target selection, disconnection or navigation.
 - The MVP public API does not return raw `IWebDriver`/`IWebElement` objects. Selenium `WebElement` stores its parent driver and element ID at construction and sends commands directly to that parent, so exposing it would bypass epoch guards. [`WebElement.cs` L39-L58](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L39-L58), [`WebElement.cs` L704-L710](https://github.com/SeleniumHQ/selenium/blob/da2039bd1456a161d0c284de16f9f4f179f1e8ca/dotnet/src/webdriver/WebElement.cs#L704-L710) `IBrowserCommands` is a guarded facade exposing only explicitly supported core W3C operations; every command and returned element is protected by the lifecycle gate and epoch checks.
 - A `WebDriverLease` is valid only for the `AttachmentEpoch` in which it was issued. The epoch changes immediately when disconnect begins, so using an old lease throws `StaleAttachmentException` before any network call. `SessionGeneration` separately retains the successful session number for diagnostics.
 - `ElementRef` stores its locator, frame path, target key, creation generation, and attachment epoch. It does not retain a raw element long term.
@@ -432,13 +432,24 @@ API rules:
 
 Valid navigation combinations follow. Combinations absent from this table are argument errors.
 
-| Mode | Initial state | Behavior | Final state |
-|---|---|---|---|
-| `Standard` | `WebDriverAttached` | Guarded W3C navigation; ignore `ReconnectAfterNavigation` | `WebDriverAttached` |
-| `Detached` | `WebDriverAttached` | Replace epoch, remove attachment, navigate the selected target through CDP | `CdpOnly` or a new `WebDriverAttached`, depending on options |
-| `Detached` | `CdpOnly` | Navigate the selected target through CDP | Same state or a new attachment, depending on `ReconnectAfterNavigation` |
-| `CdpOnly` | `CdpOnly`/`ChromeReady` | Navigate the selected target through CDP; reject contradictory `ReconnectAfterNavigation=true` | `CdpOnly` |
-| `CdpOnly` | `WebDriverAttached` | Reject without implicitly disconnecting; caller must explicitly disconnect first | Unchanged |
+| Mode | Initial state | Reconnect | Delay | Target policy | Behavior / final state |
+|---|---|---|---|---|---|
+| `Standard` | `WebDriverAttached` | `false` | `null` | `CurrentControlled` | Guarded W3C navigation; remain `WebDriverAttached` |
+| `Detached` | `WebDriverAttached`/`CdpOnly` | `false` | `null` | Either defined policy | Disconnect if attached, navigate through CDP; finish `CdpOnly` |
+| `Detached` | `WebDriverAttached`/`CdpOnly` | `true` | `null` or `0 <= delay < Navigation` timeout | Either defined policy | Disconnect if attached, navigate through CDP, delay, create new attachment; finish `WebDriverAttached` |
+| `CdpOnly` | `CdpOnly`/`ChromeReady` | `false` | `null` | Either defined policy | Navigate through CDP; finish `CdpOnly` |
+
+The reconnect column means `ReconnectAfterNavigation`; the delay column means
+`ReconnectDelay`. A delay, including zero, is invalid without Detached reconnection.
+Null and zero add no intentional hold in that supported combination. Negative
+delays and delays equal to or greater than the captured `BrowserTimeouts.Navigation`
+fail before side effects; the same budget includes queueing, navigation, the delay
+and reattachment. Validation does not promise sufficient remaining time after a
+slow navigation: runtime budget exhaustion still reports timeout, with whether
+the browser may have advanced. Do not clamp delays or compare them with
+`BrowserTimeouts.Reconnect`, which starts at the subsequent attachment phase.
+All other initial states are rejected. `CdpOnly` from `WebDriverAttached` requires
+explicit disconnection first. `ReplaceControlled` is rejected for `Standard`.
 
 `WaitUntil` provides `Commit`, `DOMContentLoaded`, `Load`, and `NetworkIdle`; mark `NetworkIdle` as best effort. Record the final URL and redirect chain in the result. Same-document navigation may lack loader events, so evaluate URL/history changes and an optional predicate. Return download starts and target closure/crashes as distinct terminal results/errors rather than mistaking them for successful loads.
 

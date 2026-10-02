@@ -64,10 +64,16 @@ public sealed record BrowserOptions
 public sealed record NavigationOptions
 {
     public NavigationMode Mode { get; init; }
+    /// <summary>Creates a new attachment after Detached navigation. Other modes reject true.</summary>
     public bool ReconnectAfterNavigation { get; init; }
     public NavigationWaitUntil WaitUntil { get; init; } = NavigationWaitUntil.Load;
     public TargetKey? Target { get; init; }
     public TargetPolicy TargetPolicy { get; init; }
+    /// <summary>
+    /// Post-navigation delay, only for Detached with reconnection. Null/zero adds no hold.
+    /// Must be nonnegative and less than BrowserTimeouts.Navigation; consumes that budget,
+    /// independently of the subsequent BrowserTimeouts.Reconnect attachment timeout.
+    /// </summary>
     public TimeSpan? ReconnectDelay { get; init; }
 }
 public sealed record NavigationResult(Uri FinalUrl, IReadOnlyList<string> RedirectChain, NavigationOutcome Outcome, long SessionGeneration, long AttachmentEpoch, bool BrowserMayHaveAdvanced = false);

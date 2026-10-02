@@ -98,11 +98,11 @@ public sealed partial class WindowsTests
     {
         await using var server = await FixtureAsync();
         await using var browser = await Browser.StartAsync(options);
-        var result = await browser.NavigateAsync(new Uri(server.Url, "/redirect"), new() { Mode = NavigationMode.Detached, WaitUntil = wait, ReconnectAfterNavigation = true });
+        var result = await NavigateWithDiagnosticsAsync(browser, new Uri(server.Url, "/redirect"), new() { Mode = NavigationMode.Detached, WaitUntil = wait, ReconnectAfterNavigation = true });
         Assert.That(result.FinalUrl.AbsolutePath, Is.EqualTo("/page"));
         Assert.That(result.RedirectChain.Any(x => x.EndsWith("/redirect", StringComparison.Ordinal)), Is.True);
         await browser.DisconnectWebDriverAsync();
-        var same = await browser.NavigateAsync(new Uri(server.Url, "/page#anchor"), new() { Mode = NavigationMode.CdpOnly, WaitUntil = wait });
+        var same = await NavigateWithDiagnosticsAsync(browser, new Uri(server.Url, "/page#anchor"), new() { Mode = NavigationMode.CdpOnly, WaitUntil = wait });
         Assert.That(same.FinalUrl.Fragment, Is.EqualTo("#anchor"));
         Assert.That(browser.State, Is.EqualTo(BrowserState.CdpOnly));
     }
@@ -293,10 +293,25 @@ public sealed partial class WindowsTests
             await using var server = await FixtureAsync();
             await using var browser = await Browser.StartAsync(options);
             await browser.ExecuteCdpAsync("Browser.setDownloadBehavior", new { behavior = "allow", downloadPath = downloads, eventsEnabled = true });
-            var result = await browser.NavigateAsync(new Uri(server.Url, "/download"), new() { Mode = mode });
+            var result = await NavigateWithDiagnosticsAsync(browser, new Uri(server.Url, "/download"), new() { Mode = mode });
             Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Download));
         }
         finally { Directory.Delete(downloads, true); }
+    }
+    private static async Task<NavigationResult> NavigateWithDiagnosticsAsync(Browser browser, Uri url, NavigationOptions navigation)
+    {
+        try { return await browser.NavigateAsync(url, navigation); }
+        catch (Exception error)
+        {
+            TestContext.Out.WriteLine(JsonSerializer.Serialize(new
+            {
+                Navigation = error.Data.Cast<System.Collections.DictionaryEntry>()
+                    .Where(entry => entry.Key is string key && key.StartsWith("Navigation.", StringComparison.Ordinal))
+                    .ToDictionary(entry => (string)entry.Key, entry => entry.Value),
+                Health = browser.Health
+            }));
+            throw;
+        }
     }
     private static bool IsAlive(int pid) { try { using var process = Process.GetProcessById(pid); return !process.HasExited; } catch (ArgumentException) { return false; } }
     private static async Task AssertPortClosed(int port)

@@ -168,6 +168,89 @@ public sealed class NavigationContractTests
         await controller.RecoverAsync(deadline.Token);
         Assert.That(fixture.ScriptRegistrations, Is.EqualTo(2 * perSession));
     }
+    [TestCase("net::ERR_ABORTED"), TestCase("net::ERR_CONNECTION_REFUSED")]
+    public async Task NavigationRejectionPreservesChromeErrorAndSessionContext(string errorText)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        fixture.NavigationError = errorText;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var setup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await controller.InitializeAsync(setup.Token);
+        var error = Assert.ThrowsAsync<BrowserDockException>(async () =>
+            await controller.NavigateAsync(new Uri("http://fixture/page"), new() { Mode = NavigationMode.Detached }, null, setup.Token))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(error.Category, Is.EqualTo(ErrorCategory.ProtocolError));
+            Assert.That(error.Message, Does.Contain(errorText));
+            Assert.That(error.Data["Navigation.CdpErrorText"], Is.EqualTo(errorText));
+            Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("Page.navigate"));
+            Assert.That(error.Data["Navigation.Mode"], Is.EqualTo("Detached"));
+            Assert.That(error.Data["Navigation.SessionId"], Is.EqualTo("session-page"));
+            Assert.That(error.Data["Navigation.TargetId"], Is.EqualTo("page"));
+            Assert.That(error.Data["Navigation.FrameId"], Is.EqualTo("main"));
+            Assert.That(error.Data["Navigation.PreviousLoaderId"], Is.EqualTo("old-loader"));
+            Assert.That(error.BrowserMayHaveAdvanced, Is.True);
+            Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+            Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+        });
+        fixture.NavigationError = null;
+        await controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, setup.Token);
+    }
+
+    [TestCase("Network.enable"), TestCase("Page.getFrameTree"), TestCase("Page.navigate"), TestCase("Runtime.evaluate")]
+    public async Task CanceledProtocolRequestIdentifiesNavigationStage(string method)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var setup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await controller.InitializeAsync(setup.Token);
+        fixture.HoldMethod = method;
+        using var canceled = new CancellationTokenSource();
+        var pending = controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, canceled.Token);
+        try
+        {
+            await fixture.HeldRequest.Task.WaitAsync(setup.Token);
+            canceled.Cancel();
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await pending.WaitAsync(setup.Token))!;
+            Assert.That(error.Data["Navigation.Stage"], Is.EqualTo(method));
+            Assert.That(error.CancellationToken, Is.EqualTo(canceled.Token));
+            Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+            Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+        }
+        finally { canceled.Cancel(); }
+        fixture.HoldMethod = null;
+        await controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, setup.Token);
+    }
+
+    [TestCase(true), TestCase(false)]
+    public async Task StandardCancellationDistinguishesDriverFromEventWaiting(bool holdDriver)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync();
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var setup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await controller.InitializeAsync(setup.Token);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var canceled = new CancellationTokenSource();
+        var pending = controller.NavigateAsync(new Uri("http://fixture/download"), new(), token =>
+        {
+            entered.TrySetResult(true);
+            return holdDriver ? Task.Delay(Timeout.Infinite, token) : Task.CompletedTask;
+        }, canceled.Token);
+        try
+        {
+            await entered.Task.WaitAsync(setup.Token);
+            canceled.Cancel();
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await pending.WaitAsync(setup.Token))!;
+            Assert.That(error.Data["Navigation.Stage"], Is.EqualTo(holdDriver ? "WebDriver.Navigate" : "navigation-events"));
+            Assert.That(error.Data["Navigation.Committed"], Is.EqualTo("False"));
+            Assert.That(error.Data["Navigation.Loaded"], Is.EqualTo("False"));
+            Assert.That(error.Data["Navigation.OutstandingRequests"], Is.EqualTo("0"));
+            Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+            Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+        }
+        finally { canceled.Cancel(); }
+    }
+
     private sealed class ProtocolFixture : IAsyncDisposable
     {
         private LocalServer server = null!;
@@ -182,6 +265,9 @@ public sealed class NavigationContractTests
         public System.Collections.Concurrent.ConcurrentBag<string> Sources = new();
         public bool OnlyOldLoader;
         public string? Scenario;
+        public string? NavigationError;
+        public string? HoldMethod;
+        public TaskCompletionSource<bool> HeldRequest = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public static async Task<ProtocolFixture> StartAsync()
         {
             var fixture = new ProtocolFixture(); fixture.server = await LocalServer.StartAsync(fixture.HandleAsync); return fixture;
@@ -207,6 +293,7 @@ public sealed class NavigationContractTests
                     do { message = await socket.ReceiveAsync(bytes, context.RequestAborted); if (message.MessageType == WebSocketMessageType.Close) return; stream.Write(bytes, 0, message.Count); } while (!message.EndOfMessage);
                     using var document = JsonDocument.Parse(stream.ToArray());
                     var root = document.RootElement; var method = root.GetProperty("method").GetString()!;
+                    if (method == HoldMethod) { HeldRequest.TrySetResult(true); continue; }
                     if ((method.StartsWith("Page.", StringComparison.Ordinal) || method.StartsWith("Runtime.", StringComparison.Ordinal)) && !root.TryGetProperty("sessionId", out _)) Interlocked.Increment(ref PageCallsWithoutSession);
                     object result = method switch
                     {
@@ -228,7 +315,9 @@ public sealed class NavigationContractTests
                     }
                     if (method == "Page.navigate" && Scenario == "download") result = new { frameId = "main", isDownload = true };
                     if (method == "Page.navigate" && Scenario == "same-document") result = new { frameId = "main" };
+                    if (method == "Page.navigate" && NavigationError is not null) result = new { frameId = "main", errorText = NavigationError };
                     await Send(new { id = root.GetProperty("id").GetInt64(), result });
+                    if (method == "Page.navigate" && NavigationError is not null) continue;
                     if (method == "Page.navigate")
                     {
                         if (Scenario == "target-closed") { await Send(new { method = "Target.targetDestroyed", @params = new { targetId = "page" } }); continue; }
