@@ -1,5 +1,7 @@
 name: Windows hosted browser tests
 on:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       stress:
@@ -8,11 +10,14 @@ on:
         type: boolean
 permissions:
   contents: read
-concurrency:
-  group: hosted-browser-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   browser:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci:run'
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Not requested - browser' || 'browser' }}
+    # Keep concurrency on the job so a skipped unrelated label cannot cancel a run.
+    concurrency:
+      group: hosted-browser-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:

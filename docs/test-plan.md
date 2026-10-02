@@ -90,9 +90,9 @@ The current runner includes the subsequently added Legacy net8 target:
 
 | Layer | Environment / TFM | When |
 |---|---|---|
-| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Manual dispatch |
-| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Manual dispatch |
-| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Manual dispatch |
+| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
+| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Add `ci:run` to the PR; standalone manual dispatch |
+| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
 | First browser smoke | Interactive Windows 11 x64, CfT Stable, Core net10.0 | First |
 | Full browser matrix | Same environment; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Regular regression/release |
 | Browser-version matrix | Those five combinations × CfT Stable/Stable-1 | Release |
@@ -143,13 +143,30 @@ It intentionally stays disconnected for 30 seconds, checking Chrome identity/pro
 
 Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script stops at failure; record later TFMs without results as not run. Preserve TRX and `fixture.json` using separate directories for repeats.
 
-#### GitHub-hosted browser regressions
+#### Manually requested PR checks
 
-All repository workflows, including common contracts and secret scanning, start
-only through manual `workflow_dispatch`. In Actions, select the workflow and
-use **Run workflow** to choose the branch. GitHub requires the workflow file on
-the default branch before it can be dispatched; adding a new workflow only on
-a PR branch does not enable that button. Pushes and PR updates do not trigger CI.
+Add the **`ci:run`** repository label to a PR to start Common contracts, Secret scan,
+and Windows hosted browser tests. Create the label under **Issues → Labels** if it
+does not exist. The workflows accept only the `labeled` PR activity and check the
+label being added, so PR creation, pushes, and a label left attached do not start
+CI. After new commits or a base-branch update, remove and re-add `ci:run` to test
+the current revision. PR runs check out GitHub's test merge commit with the base
+branch; resolve merge conflicts before requesting them.
+
+These `pull_request` runs can satisfy the six existing required checks: the four
+`common` matrix jobs, `framework481`, and `Secret scan`. Other labels produce only
+skipped jobs named `Not requested - ...`, never the required names, because GitHub
+counts skipped checks as passing. They do not run tests or cancel a running
+hosted browser job. Inspect the actual labeled run when evaluating CI results.
+
+Standalone branch checks still use **Actions → Run workflow** (`workflow_dispatch`).
+GitHub requires the workflow file on the default branch to show that button.
+Checks from these manually dispatched jobs do not satisfy PR required checks,
+even on the same head SHA; see [GitHub's required-check troubleshooting guide](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated).
+Use the PR label for merge validation. Windows 11 acceptance and package/release
+remain dispatch-only and are not started by the label.
+
+#### GitHub-hosted browser regressions
 
 `windows-hosted-browser.yml` uses GitHub's `windows-2025` x64 image without a self-hosted
 runner or the `windows-browser` deployment environment. The fixture installer

@@ -97,11 +97,16 @@ On a prepared Windows 11 desktop:
 # Add -Stress for 100 lifecycle cycles and 20 concurrent browsers.
 ```
 
-All GitHub Actions workflows use manual `workflow_dispatch` triggers, including
-common contracts, secret scanning, browser tests, and package/release workflows.
-In **Actions**, select a workflow, choose **Run workflow**, and select the branch
-to test. The workflow file must exist on the default branch for manual dispatch
-to be available. Pushes and pull-request updates do not start these workflows.
+To request PR CI, add the **`ci:run`** label to the pull request. This starts Common
+contracts, Secret scan, and Windows hosted browser tests through `pull_request`
+events, so their results can satisfy the PR's required checks. After pushing new
+commits, remove and re-add the label to test the latest PR revision. Creating a
+PR, pushing commits, or leaving the label attached does not start another run.
+
+**Actions → Run workflow** remains available for standalone branch checks, browser
+stress, Windows 11 acceptance, and package/release work. It requires the workflow
+file on the default branch. Results from `workflow_dispatch` jobs do not satisfy
+PR required checks; use the label for PR validation.
 
 The manual [Windows hosted browser tests](.github/workflows/windows-hosted-browser.yml)
 run on GitHub's `windows-2025` runners with a pinned Chrome for Testing/ChromeDriver
