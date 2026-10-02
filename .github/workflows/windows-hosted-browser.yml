@@ -1,8 +1,5 @@
 name: Windows hosted browser tests
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       stress:

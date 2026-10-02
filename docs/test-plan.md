@@ -66,9 +66,9 @@ The current runner includes the subsequently added Legacy net8 target:
 
 | Layer | Environment / TFM | When |
 |---|---|---|
-| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Every PR |
-| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Every PR |
-| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Every PR and main push |
+| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Manual dispatch |
+| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Manual dispatch |
+| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Manual dispatch |
 | First browser smoke | Interactive Windows 11 x64, CfT Stable, Core net10.0 | First |
 | Full browser matrix | Same environment; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Regular regression/release |
 | Browser-version matrix | Those five combinations × CfT Stable/Stable-1 | Release |
@@ -121,8 +121,13 @@ Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script 
 
 #### GitHub-hosted browser regressions
 
-`windows-hosted-browser.yml` runs on pull requests, pushes to main, and manual
-workflow dispatch. It uses GitHub's `windows-2025` x64 image without a self-hosted
+All repository workflows, including common contracts and secret scanning, start
+only through manual `workflow_dispatch`. In Actions, select the workflow and
+use **Run workflow** to choose the branch. GitHub requires the workflow file on
+the default branch before it can be dispatched; adding a new workflow only on
+a PR branch does not enable that button. Pushes and PR updates do not trigger CI.
+
+`windows-hosted-browser.yml` uses GitHub's `windows-2025` x64 image without a self-hosted
 runner or the `windows-browser` deployment environment. The fixture installer
 downloads the official win64 Chrome for Testing and ChromeDriver archives at
 version `154.0.8037.57`, verifies both executable versions, and records download
