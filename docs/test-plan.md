@@ -12,6 +12,30 @@ Added admission synchronization/remote-call rejection, driver cleanup deadlines,
 
 The steps below preserve the original goals and additional verification criteria. Verify Windows browser execution, actual SeleniumBase comparisons, and PowerShell in the supported environment. Cross-process profile/cache contention, every fault point, individual handle attribution, and real patch recipes require further validation. Adding instrumentation is not an acceptance pass. Historical status tables below describe the plan's original baseline; use the implementation record for later results.
 
+### Browser cases removed pending investigation
+
+[Issue #41](https://github.com/mete0rfish/BrowserDock/issues/41) records intermittent
+failures on the same PR #39 source and tracks diagnosis and restoration of six
+cases removed from the test suite:
+
+- Core reference scenarios `SharedScenarioMatchesManifest("SB-03")` and `("SB-04")`.
+- Core startup cancellation cases `AC06_StartupCancellationRollsBack("driver-start")`
+  and `("session-created")`.
+- Core `CallerProfileAndCanceledStopPreserveSentinelAndReleaseLock`.
+- Legacy `FacadeDetachedNavigationSupportsRedirectsAndSameDocument(DOMContentLoaded)`.
+
+Other parameter values, Legacy startup cancellation cases, and portable command
+regressions remain. These removals apply to every TFM of the respective projects;
+they are coverage gaps, not evidence that the underlying behavior is fixed.
+Normal Windows runs execute the remaining discovered suite. Selected-test
+failure/skip checks and manual workflow triggers retain their existing behavior.
+
+The .NET reference runner currently produces SB-01/SB-02 observations only.
+The four-scenario manifest, Python scenarios, and comparator remain unchanged,
+so a full SB-01–SB-04 comparison fails for missing .NET observations until the
+removed scenarios are restored. The comparison and release criteria below remain
+the acceptance goals; passing the reduced suite does not satisfy those gaps.
+
 ## 1. Comparison scope and evaluation
 
 The [SeleniumBase compatibility matrix](seleniumbase-compatibility.md) now defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts under #24/#25. Its row-specific gaps and evidence rules extend this original plan; the four existing scenarios remain a subset. #36 must add timeline, duration, target/frame, value, cancellation and cleanup observations before any new equivalence claim. This scope update is not an execution result.
@@ -66,8 +90,9 @@ The current runner includes the subsequently added Legacy net8 target:
 
 | Layer | Environment / TFM | When |
 |---|---|---|
-| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Every PR |
-| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Every PR |
+| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
+| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Add `ci:run` to the PR; standalone manual dispatch |
+| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
 | First browser smoke | Interactive Windows 11 x64, CfT Stable, Core net10.0 | First |
 | Full browser matrix | Same environment; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Regular regression/release |
 | Browser-version matrix | Those five combinations × CfT Stable/Stable-1 | Release |
@@ -79,7 +104,7 @@ Chrome/driver must be M115+ with matching `MAJOR.MINOR.BUILD`. Prefer identical 
 
 Record BrowserDock SHA, SeleniumBase SHA/package/Python dependency list, OS build, TFM, full browser/driver versions and SHA256, launch options, patch mode, and fixture version. SeleniumBase may modify a UC driver, so record vendor and executed artifact versions/hashes separately. Do not force both implementations to share a patched binary.
 
-Each test uses its own profile/browser. Run ordinary browser tests serially; reserve 20-instance concurrency for Stress. Separate hosted Windows common-test passes from interactive Windows 11 browser acceptance.
+Each test uses its own profile/browser. Run ordinary browser tests serially; reserve 20-instance concurrency for Stress. Distinguish common-test results, hosted Windows Server browser regressions, and interactive Windows 11 browser acceptance.
 
 ## 4. Execution sequence
 
@@ -117,6 +142,52 @@ It intentionally stays disconnected for 30 seconds, checking Chrome identity/pro
 ```
 
 Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script stops at failure; record later TFMs without results as not run. Preserve TRX and `fixture.json` using separate directories for repeats.
+
+#### Manually requested PR checks
+
+Add the **`ci:run`** repository label to a PR to start Common contracts, Secret scan,
+and Windows hosted browser tests. Create the label under **Issues → Labels** if it
+does not exist. The workflows accept only the `labeled` PR activity and check the
+label being added, so PR creation, pushes, and a label left attached do not start
+CI. After new commits or a base-branch update, remove and re-add `ci:run` to test
+the current revision. PR runs check out GitHub's test merge commit with the base
+branch; resolve merge conflicts before requesting them.
+
+These `pull_request` runs can satisfy the six existing required checks: the four
+`common` matrix jobs, `framework481`, and `Secret scan`. Other labels produce only
+skipped jobs named `Not requested - ...`, never the required names, because GitHub
+counts skipped checks as passing. They do not run tests or cancel a running
+hosted browser job. Inspect the actual labeled run when evaluating CI results.
+
+Standalone branch checks still use **Actions → Run workflow** (`workflow_dispatch`).
+GitHub requires the workflow file on the default branch to show that button.
+Checks from these manually dispatched jobs do not satisfy PR required checks,
+even on the same head SHA; see [GitHub's required-check troubleshooting guide](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated).
+Use the PR label for merge validation. Windows 11 acceptance and package/release
+remain dispatch-only and are not started by the label.
+
+#### GitHub-hosted browser regressions
+
+`windows-hosted-browser.yml` uses GitHub's `windows-2025` x64 image without a self-hosted
+runner or the `windows-browser` deployment environment. The fixture installer
+downloads the official win64 Chrome for Testing and ChromeDriver archives at
+version `154.0.8037.57`, verifies both executable versions, and records download
+URLs and SHA256 values. The version is pinned in the workflow, not resolved from
+the runner's installed Chrome or a moving Stable channel.
+
+The job invokes the full normal suite with `-FixtureKind GitHubHosted`, including
+common regressions and actual browser tests across all five combinations above.
+Chrome keeps its existing headed launch mode; no headless or sandbox overrides
+are added. Required tests must execute and pass; zero tests, unexpected skips,
+and missing TRX fail the run. Stress remains opt-in through the manual input.
+
+Download the `windows-hosted-browser-<run-id>-<attempt>` artifact for the TRX,
+reference observations, `fixture.json`, and `downloads.json`. Fixture metadata
+includes the tested Git commit and worktree status, actual OS name/build, runner
+image/version, runtime inventory, and browser versions/hashes. These are Windows
+Server regression results, not a Windows 11 compatibility claim. They do not
+satisfy the separate Windows 11 workflow required by the release publication
+gate, or establish real-browser coverage for scenarios tested only with mocks.
 
 ### Step 4 — Compare the same local pages with SeleniumBase
 

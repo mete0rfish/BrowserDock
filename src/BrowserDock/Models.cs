@@ -72,6 +72,9 @@ public sealed record NavigationOptions
 }
 public sealed record NavigationResult(Uri FinalUrl, IReadOnlyList<string> RedirectChain, NavigationOutcome Outcome, long SessionGeneration, long AttachmentEpoch, bool BrowserMayHaveAdvanced = false);
 public sealed record ShutdownOptions;
+// .NET Framework requires serializable values in Exception.Data. Command
+// cancellation carries this immutable snapshot through that existing channel.
+[Serializable]
 public sealed record BrowserHealthSnapshot(BrowserState State, long SessionGeneration, long AttachmentEpoch,
     int? ChromePid, int? DriverPid, string Chrome, string Cdp, string Attachment, DateTimeOffset? LastProbe,
     IReadOnlyList<string> CleanupFailures);

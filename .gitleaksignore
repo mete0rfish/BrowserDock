@@ -1,0 +1,5 @@
+# Verified SHA-256 of docs/wiki/ko-API-Guide.md after publish-wiki-ko.py
+# normalizes Markdown links in the same commit.
+# The historical manifest's API filename triggers generic-api-key during full-history scans.
+# Exclude only this finding; keep all other files, commits and rules covered.
+9b9476d6ed9de7602b0e82f3dd34a6920e95eaba:docs/wiki-manifest.json:generic-api-key:8

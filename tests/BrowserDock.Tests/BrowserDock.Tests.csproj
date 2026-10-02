@@ -6,10 +6,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Shared/ReferencePages.cs" Link="Fixtures/ReferencePages.cs" />
+    <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
     <Compile Include="../Shared/StartupSnapshotTests.cs" Link="StartupSnapshotTests.cs" />
     <Compile Include="../Shared/OptionsCaptureTests.cs" Link="OptionsCaptureTests.cs" />
     <None Include="../seleniumbase-reference/scenarios.json" Link="scenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/BrowserDock/BrowserDock.csproj" />
+    <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="NUnit" Version="4.6.1" />

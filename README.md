@@ -97,6 +97,23 @@ On a prepared Windows 11 desktop:
 # Add -Stress for 100 lifecycle cycles and 20 concurrent browsers.
 ```
 
+To request PR CI, add the **`ci:run`** label to the pull request. This starts Common
+contracts, Secret scan, and Windows hosted browser tests through `pull_request`
+events, so their results can satisfy the PR's required checks. After pushing new
+commits, remove and re-add the label to test the latest PR revision. Creating a
+PR, pushing commits, or leaving the label attached does not start another run.
+
+**Actions → Run workflow** remains available for standalone branch checks, browser
+stress, Windows 11 acceptance, and package/release work. It requires the workflow
+file on the default branch. Results from `workflow_dispatch` jobs do not satisfy
+PR required checks; use the label for PR validation.
+
+The manual [Windows hosted browser tests](.github/workflows/windows-hosted-browser.yml)
+run on GitHub's `windows-2025` runners with a pinned Chrome for Testing/ChromeDriver
+pair. They include real browser tests and common regressions across all five
+runtime/project combinations. Results identify Windows Server separately from
+Windows 11 desktop acceptance; see the [hosted CI procedure](docs/test-plan.md#github-hosted-browser-regressions).
+
 Read the [test plan](docs/test-plan.md), [SeleniumBase reference runner](tests/seleniumbase-reference/README.md), [architecture](docs/architecture.md), and [contribution guide](CONTRIBUTING.md). Include a minimal local reproduction and exact versions in bug reports. Use [SECURITY.md](SECURITY.md) for vulnerabilities.
 
 ## License and provenance

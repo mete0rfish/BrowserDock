@@ -111,5 +111,12 @@ app.MapGet("/page", () => Results.Content("""
     <button id="button" onclick="this.textContent='clicked'">ready</button><input id="input"><iframe src="/frame"></iframe>
     """, "text/html"));
 await app.StartAsync();
+var commandReadyFile = args.SingleOrDefault(x => x.StartsWith("--command-ready-file=", StringComparison.Ordinal));
+if (commandReadyFile is not null)
+{
+    var readyPath = commandReadyFile.Substring("--command-ready-file=".Length);
+    await File.WriteAllTextAsync(readyPath + ".tmp", Environment.ProcessId.ToString());
+    File.Move(readyPath + ".tmp", readyPath);
+}
 Console.WriteLine("BROWSERDOCK_FIXTURE_URL=" + app.Urls.Single());
 await app.WaitForShutdownAsync();
