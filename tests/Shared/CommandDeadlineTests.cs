@@ -21,7 +21,9 @@ public sealed class CommandDeadlineTests
     [TestCase(false), TestCase(true)]
     public async Task QueuedDeadlinePreservesAttachmentAndGateOwnership(bool legacy)
     {
-        await using var fixture = await CommandFixture.StartAsync(TimeSpan.FromMilliseconds(150));
+        // Holding the gate guarantees expiry. Keep the normal command budget so
+        // the successful follow-up also tolerates dispatch delays on hosted runners.
+        await using var fixture = await CommandFixture.StartAsync();
         var epoch = fixture.Browser.AttachmentEpoch;
         await fixture.Browser.CommandsGateForTest.WaitAsync();
         try
@@ -370,8 +372,9 @@ public sealed class CommandDeadlineTests
     public async Task CancellationBeforeActionStartsPreservesAttachment(bool legacy, bool timeout, bool queuedWorker)
     {
         var entered = Signal(); var release = Signal();
+        // The blocked stage/worker forces the timeout; a subsecond budget would
+        // also constrain the successful follow-up and race Framework scheduling.
         await using var fixture = await CommandFixture.StartAsync(
-            commandBudget: timeout ? TimeSpan.FromMilliseconds(200) : TimeSpan.FromSeconds(5),
             stage: async (name, token) =>
             {
                 if (!queuedWorker && name == "command-dispatch")
