@@ -1,3 +1,4 @@
+using System.Collections;
 using Core = global::BrowserDock;
 
 namespace BrowserDock.Legacy;
@@ -15,6 +16,7 @@ public class BrowserDockException : Exception
         Category = (ErrorCategory)error.Category; OperationId = error.OperationId; Retryable = error.Retryable;
         Diagnostic = error.Diagnostic is null ? null : new(error.Diagnostic); BrowserMayHaveAdvanced = error.BrowserMayHaveAdvanced;
         CleanupFailures = Array.AsReadOnly(error.CleanupFailures.ToArray());
+        Api.CopyNavigationDiagnostics(error, this);
     }
 }
 public sealed class StaleAttachmentException : BrowserDockException { internal StaleAttachmentException(Core.BrowserDockException error) : base(error) { } }
@@ -23,10 +25,20 @@ public sealed class BrowserExitedException : BrowserDockException { internal Bro
 public sealed class NavigationCanceledException : OperationCanceledException
 {
     public bool BrowserMayHaveAdvanced { get; }
-    internal NavigationCanceledException(Core.NavigationCanceledException error) : base(error.Message, error, error.CancellationToken) => BrowserMayHaveAdvanced = error.BrowserMayHaveAdvanced;
+    internal NavigationCanceledException(Core.NavigationCanceledException error) : base(error.Message, error, error.CancellationToken)
+    {
+        BrowserMayHaveAdvanced = error.BrowserMayHaveAdvanced;
+        Api.CopyNavigationDiagnostics(error, this);
+    }
 }
 internal static class Api
 {
+    internal static void CopyNavigationDiagnostics(Exception source, Exception destination)
+    {
+        foreach (DictionaryEntry entry in source.Data)
+            if (entry.Key is string key && key.StartsWith("Navigation.", StringComparison.Ordinal) && entry.Value is string value)
+                destination.Data[key] = value;
+    }
     internal static Exception Translate(Core.BrowserDockException error) => error.Category switch
     {
         Core.ErrorCategory.StaleAttachment => new StaleAttachmentException(error),

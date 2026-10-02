@@ -18,4 +18,10 @@ public sealed class NavigationCanceledException : OperationCanceledException
 {
     public bool BrowserMayHaveAdvanced { get; }
     public NavigationCanceledException(CancellationToken token, bool advanced) : base("Navigation was canceled.", token) => BrowserMayHaveAdvanced = advanced;
+    internal NavigationCanceledException(CancellationToken token, bool advanced, Exception inner)
+        : base($"Navigation was canceled during {inner.Data[NavigationDiagnostics.Prefix + "Stage"] ?? "navigation"}.", inner, token)
+    {
+        BrowserMayHaveAdvanced = advanced;
+        NavigationDiagnostics.Copy(inner, this);
+    }
 }

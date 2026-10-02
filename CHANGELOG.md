@@ -6,6 +6,9 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Preserve Chrome navigation rejection text, navigation-stage diagnostics and
+  original cancellation causes through Core/Legacy error and timeout mapping (#41).
+
 - Reject ineffective navigation reconnect options and delays that cannot fit the
   navigation budget before probing or mutating browser state (#28). Core and
   Legacy share the same validation; valid navigation modes retain their behavior.

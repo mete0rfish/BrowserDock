@@ -36,6 +36,25 @@ so a full SB-01–SB-04 comparison fails for missing .NET observations until the
 removed scenarios are restored. The comparison and release criteria below remain
 the acceptance goals; passing the reduced suite does not satisfy those gaps.
 
+### Navigation failure diagnostics
+
+Navigation failures now retain Chrome's `Page.navigate.errorText` in both the
+exception message and `Exception.Data["Navigation.CdpErrorText"]`. Core and Legacy
+also preserve `Navigation.*` string entries when mapping cancellation, timeouts
+and protocol errors, with the original cancellation exception in the inner chain.
+`Navigation.Stage` distinguishes session setup, individual CDP requests,
+`WebDriver.Navigate`, event waiting, and reconnect. CDP-stage failures include
+target/session/frame/loader identifiers, received-event count and last event name,
+processed completion flags, and outstanding-request count. Counts and flags are
+a failure-time snapshot, not an ordered event trace; events may still be queued.
+No event payloads, page contents or requested URLs are added to these entries.
+
+The Windows redirect and download cases write these entries and browser health
+to test output on failure so they are retained in TRX artifacts. Regression tests
+exercise rejection text, cancellation during CDP requests/driver/event waiting,
+and Core/Legacy error mapping without Chrome. This instrumentation supports
+issue #41; it does not establish a root cause or restore the removed cases.
+
 ## 1. Comparison scope and evaluation
 
 The [SeleniumBase compatibility matrix](seleniumbase-compatibility.md) now defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts under #24/#25. Its row-specific gaps and evidence rules extend this original plan; the four existing scenarios remain a subset. #36 must add timeline, duration, target/frame, value, cancellation and cleanup observations before any new equivalence claim. This scope update is not an execution result.

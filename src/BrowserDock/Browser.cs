@@ -184,7 +184,12 @@ public sealed class Browser : IAsyncDisposable
             return await operation(deadline.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException e) when (!caller.IsCancellationRequested && !lifetime.IsCancellationRequested)
-        { throw new BrowserDockException(ErrorCategory.OperationTimedOut, "Browser operation exceeded its deadline.", e) { OperationId = id, Diagnostic = Health, BrowserMayHaveAdvanced = e is NavigationCanceledException { BrowserMayHaveAdvanced: true } }; }
+        {
+            var error = new BrowserDockException(ErrorCategory.OperationTimedOut, "Browser operation exceeded its deadline.", e)
+            { OperationId = id, Diagnostic = Health, BrowserMayHaveAdvanced = e is NavigationCanceledException { BrowserMayHaveAdvanced: true } };
+            NavigationDiagnostics.Copy(e, error);
+            throw error;
+        }
         catch (BrowserDockException e) { e.OperationId = id; e.Diagnostic = Health; throw; }
         finally { if (acquired) lifecycle.Release(); }
     }
@@ -391,28 +396,35 @@ public sealed class Browser : IAsyncDisposable
             if (navigation.Mode == NavigationMode.Detached && navigation.ReconnectAfterNavigation && cdp!.Snapshot().Count > 1 && !cdp.ExplicitSelection) throw new AmbiguousTargetException();
             if (navigation.Mode == NavigationMode.Detached && State == BrowserState.WebDriverAttached) await DisconnectCoreAsync(token).ConfigureAwait(false);
             var advanced = false;
+            var stage = "navigation-hook";
             try
             {
                 await StageAsync("navigation", token).ConfigureAwait(false);
-                if (navigation.TargetPolicy == TargetPolicy.ReplaceControlled) await cdp!.ReplaceAsync(token).ConfigureAwait(false);
+                if (navigation.TargetPolicy == TargetPolicy.ReplaceControlled)
+                { stage = "target-replacement"; await cdp!.ReplaceAsync(token).ConfigureAwait(false); }
                 var selected = navigation with { Target = cdp!.Controlled };
                 PageResult result;
                 if (navigation.Mode == NavigationMode.Standard)
                 {
+                    stage = "command-gate";
                     await commands.WaitAsync(token).ConfigureAwait(false);
                     try
                     {
+                        stage = "target-binding";
                         await BindTargetAsync(token).ConfigureAwait(false);
                         advanced = true;
                         using var admitted = admission.Enter(AttachmentEpoch);
+                        stage = "navigation";
                         result = await cdp.NavigateAsync(url, selected, async ct => await attachment!.InvokeAsync(d => { d.Navigate().GoToUrl(url); return true; }, ct).ConfigureAwait(false), token).ConfigureAwait(false);
                     }
                     finally { commands.Release(); }
                 }
-                else { advanced = true; result = await cdp.NavigateAsync(url, selected, null, token).ConfigureAwait(false); SetState(BrowserState.CdpOnly); }
+                else { stage = "navigation"; advanced = true; result = await cdp.NavigateAsync(url, selected, null, token).ConfigureAwait(false); SetState(BrowserState.CdpOnly); }
                 if (navigation.Mode == NavigationMode.Detached && navigation.ReconnectAfterNavigation)
                 {
-                    if (navigation.ReconnectDelay is { } delay) await Task.Delay(delay, token).ConfigureAwait(false);
+                    if (navigation.ReconnectDelay is { } delay)
+                    { stage = "reconnect-delay"; await Task.Delay(delay, token).ConfigureAwait(false); }
+                    stage = "reconnect";
                     using var deadline = new Deadline(this.options.Timeouts.Reconnect, token);
                     await AttachCoreAsync(true, deadline.Token).ConfigureAwait(false);
                 }
@@ -420,10 +432,11 @@ public sealed class Browser : IAsyncDisposable
             }
             catch (Exception e)
             {
+                NavigationDiagnostics.Record(e, stage, navigation);
                 if (attachment is not null && (!attachment.Process.Alive || e is WebDriverException or OperationCanceledException)) await RemoveFailedAttachmentAsync().ConfigureAwait(false);
                 if (chrome?.Alive != true) SetState(BrowserState.Faulted);
-                if (e is OperationCanceledException) throw new NavigationCanceledException(caller, advanced);
-                var error = Attachment.Map(e); error.BrowserMayHaveAdvanced = advanced; throw error;
+                if (e is OperationCanceledException) throw new NavigationCanceledException(caller, advanced, e);
+                var error = Attachment.Map(e); NavigationDiagnostics.Copy(e, error); error.BrowserMayHaveAdvanced = advanced; throw error;
             }
         }, options.Timeouts.Navigation, caller, epoch);
     }

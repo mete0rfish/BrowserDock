@@ -281,20 +281,23 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     }
     public async Task<PageResult> NavigateAsync(Uri url, NavigationOptions options, Func<CancellationToken, Task>? standard, CancellationToken token)
     {
-        var session = await SessionAsync(options.Target ?? Controlled, token).ConfigureAwait(false);
-        await connection.SendAsync("Network.enable", null, session.SessionId, token).ConfigureAwait(false);
-        var tree = await connection.SendAsync("Page.getFrameTree", null, session.SessionId, token).ConfigureAwait(false);
-        var frame = tree.GetProperty("frameTree").GetProperty("frame");
-        var frameId = frame.GetProperty("id").GetString();
-        var oldLoader = frame.GetProperty("loaderId").GetString();
+        var stage = "target-session";
+        PageSession? session = null;
+        string? frameId = null, oldLoader = null;
+        var observing = false;
+        long received = 0;
+        string? lastEvent = null;
         var queue = Channel.CreateBounded<CdpEvent>(new BoundedChannelOptions(2048) { FullMode = BoundedChannelFullMode.Wait });
         var overflow = false;
         void Observe(CdpEvent item)
         {
-            if (item.SessionId == session.SessionId || item.Method.StartsWith("Target.", StringComparison.Ordinal) || item.Method == "Browser.downloadWillBegin")
+            if (item.SessionId == session?.SessionId || item.Method.StartsWith("Target.", StringComparison.Ordinal) || item.Method == "Browser.downloadWillBegin")
+            {
+                Interlocked.Increment(ref received);
+                Volatile.Write(ref lastEvent, item.Method);
                 if (!queue.Writer.TryWrite(item)) { overflow = true; queue.Writer.TryComplete(new BrowserDockException(ErrorCategory.ProtocolError, "Navigation event queue overflow.")); }
+            }
         }
-        connection.Event += Observe;
         var redirects = new List<string>();
         var outstanding = new HashSet<string>();
         var lastActivity = DateTimeOffset.UtcNow;
@@ -302,14 +305,31 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         var committed = false; var dom = false; var loaded = false;
         try
         {
+            session = await SessionAsync(options.Target ?? Controlled, token).ConfigureAwait(false);
+            stage = "Network.enable";
+            await connection.SendAsync("Network.enable", null, session.SessionId, token).ConfigureAwait(false);
+            stage = "Page.getFrameTree";
+            var tree = await connection.SendAsync("Page.getFrameTree", null, session.SessionId, token).ConfigureAwait(false);
+            var frame = tree.GetProperty("frameTree").GetProperty("frame");
+            frameId = frame.GetProperty("id").GetString();
+            oldLoader = frame.GetProperty("loaderId").GetString();
+            connection.Event += Observe; observing = true;
+            lastActivity = DateTimeOffset.UtcNow;
             if (standard is null)
             {
+                stage = "Page.navigate";
                 var result = await connection.SendAsync("Page.navigate", new { url = url.AbsoluteUri }, session.SessionId, token).ConfigureAwait(false);
                 if (result.TryGetProperty("isDownload", out var download) && download.GetBoolean()) return new(url, redirects, NavigationOutcome.Download);
-                if (result.TryGetProperty("errorText", out _)) throw new BrowserDockException(ErrorCategory.ProtocolError, "Chrome rejected navigation.") { BrowserMayHaveAdvanced = true };
+                if (result.TryGetProperty("errorText", out var rejection))
+                {
+                    var error = new BrowserDockException(ErrorCategory.ProtocolError, $"Chrome rejected navigation: {rejection.GetString()}") { BrowserMayHaveAdvanced = true };
+                    error.Data[NavigationDiagnostics.Prefix + "CdpErrorText"] = rejection.GetString() ?? "";
+                    throw error;
+                }
                 loader = result.TryGetProperty("loaderId", out var value) ? value.GetString() : null;
             }
-            else await standard(token).ConfigureAwait(false);
+            else { stage = "WebDriver.Navigate"; await standard(token).ConfigureAwait(false); }
+            stage = "navigation-events";
             while (true)
             {
                 token.ThrowIfCancellationRequested();
@@ -357,13 +377,30 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 };
                 if (complete)
                 {
+                    stage = "Runtime.evaluate";
                     var location = await connection.SendAsync("Runtime.evaluate", new { expression = "location.href", returnByValue = true }, session.SessionId, token).ConfigureAwait(false);
                     return new(new Uri(location.GetProperty("result").GetProperty("value").GetString()!), redirects, NavigationOutcome.Completed);
                 }
                 await Task.Delay(20, token).ConfigureAwait(false);
             }
         }
-        finally { connection.Event -= Observe; }
+        catch (Exception error)
+        {
+            NavigationDiagnostics.Record(error, stage, options);
+            error.Data[NavigationDiagnostics.Prefix + "SessionId"] = session?.SessionId ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "TargetId"] = session?.Target.Id ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "FrameId"] = frameId ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "PreviousLoaderId"] = oldLoader ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "LoaderId"] = loader ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "EventsReceived"] = Interlocked.Read(ref received).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            error.Data[NavigationDiagnostics.Prefix + "LastEvent"] = Volatile.Read(ref lastEvent) ?? "";
+            error.Data[NavigationDiagnostics.Prefix + "Committed"] = committed.ToString();
+            error.Data[NavigationDiagnostics.Prefix + "DOMContentLoaded"] = dom.ToString();
+            error.Data[NavigationDiagnostics.Prefix + "Loaded"] = loaded.ToString();
+            error.Data[NavigationDiagnostics.Prefix + "OutstandingRequests"] = outstanding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            throw;
+        }
+        finally { if (observing) connection.Event -= Observe; }
     }
     public async ValueTask DisposeAsync() { connection.Event -= OnEvent; await connection.DisposeAsync().ConfigureAwait(false); }
 }
