@@ -9,7 +9,7 @@ using BrowserDock.WebDriver;
 
 namespace BrowserDock;
 
-public sealed class Browser : IAsyncDisposable
+public sealed partial class Browser : IAsyncDisposable
 {
     private readonly BrowserOptions options;
     private readonly SemaphoreSlim lifecycle = new(1);
@@ -270,9 +270,9 @@ public sealed class Browser : IAsyncDisposable
             catch { diagnostics.Write(1010, "Temporary target binding marker cleanup failed."); }
         }
     }
-    private async Task DisconnectCoreAsync(CancellationToken token)
+    private async Task DisconnectCoreAsync(CancellationToken token, Action? disconnected = null)
     {
-        if (State == BrowserState.CdpOnly) { await ProbeAsync(token).ConfigureAwait(false); return; }
+        if (State == BrowserState.CdpOnly) { await ProbeAsync(token).ConfigureAwait(false); disconnected?.Invoke(); return; }
         if (State != BrowserState.WebDriverAttached) throw new BrowserDockException(ErrorCategory.ConfigurationError, "Disconnect requires an attached WebDriver.");
         var drained = admission.Close();
         SetState(BrowserState.Disconnecting);
@@ -291,6 +291,7 @@ public sealed class Browser : IAsyncDisposable
             }
             catch (Exception e) { preparationError = e; diagnostics.Write(1012, "Pre-disconnect script preparation failed; continuing driver cleanup."); }
             if (attachment is not null) { await attachment.DestroyAsync(cleanup.Token).ConfigureAwait(false); PublishAttachment(null); }
+            disconnected?.Invoke();
             await ProbeAsync(cleanup.Token).ConfigureAwait(false);
             SetState(BrowserState.CdpOnly);
             if (preparationError is not null) throw new BrowserDockException(ErrorCategory.ProtocolError, "Script preparation failed before disconnect; the driver was removed.", preparationError);

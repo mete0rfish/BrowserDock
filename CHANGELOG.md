@@ -27,6 +27,11 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Added
 
+- Opt-in Core/Legacy `Browser.Uc` lifecycle and navigation helpers (#29): distinct
+  connect/reconnect, explicit current/replacement-tab policy and minimum disconnected
+  duration measured from confirmed driver exit. Each composite operation shares
+  one deadline and lifecycle gate. Existing Core navigation behavior is unchanged.
+
 - SeleniumBase Driver/UC and CDP compatibility contract and per-API matrix for
   issue #25: phased scope, explicit timing/context/value differences, Core/Legacy
   requirements, implementation gaps, provenance and candidate-commit evidence rules.

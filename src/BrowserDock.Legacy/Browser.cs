@@ -12,6 +12,7 @@ public sealed class Browser
     public long SessionGeneration => inner.SessionGeneration;
     public long AttachmentEpoch => inner.AttachmentEpoch;
     public BrowserHealthSnapshot Health => new(inner.Health);
+    public UcBrowser Uc => new(inner.Uc);
     public static Task<Browser> StartAsync(BrowserOptions options, CancellationToken cancellationToken = default)
     {
         if (options is null) throw new ArgumentNullException(nameof(options));
