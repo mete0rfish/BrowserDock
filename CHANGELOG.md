@@ -6,6 +6,10 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Revalidate Chrome/CDP and the controlled target after UC disconnected holds;
+  preserve caller cancellation tokens for every UC method, including queued and
+  already-canceled calls (#29).
+
 - Preserve Chrome navigation rejection text, navigation-stage diagnostics and
   original cancellation causes through Core/Legacy error and timeout mapping (#41).
 
@@ -26,6 +30,11 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
   strategies and loggers remain caller-owned objects with documented ownership.
 
 ### Added
+
+- Opt-in Core/Legacy `Browser.Uc` lifecycle and navigation helpers (#29): distinct
+  connect/reconnect, explicit current/replacement-tab policy and minimum disconnected
+  duration measured from confirmed driver exit. Each composite operation shares
+  one deadline and lifecycle gate. Existing Core navigation behavior is unchanged.
 
 - SeleniumBase Driver/UC and CDP compatibility contract and per-API matrix for
   issue #25: phased scope, explicit timing/context/value differences, Core/Legacy

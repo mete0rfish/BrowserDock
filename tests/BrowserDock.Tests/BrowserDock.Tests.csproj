@@ -11,6 +11,9 @@
     <Compile Include="../Shared/OptionsCaptureTests.cs" Link="OptionsCaptureTests.cs" />
     <Compile Include="../Shared/NavigationOptionsTests.cs" Link="NavigationOptionsTests.cs" />
     <Compile Include="../Shared/NavigationDiagnosticsTests.cs" Link="NavigationDiagnosticsTests.cs" />
+    <Compile Include="../Shared/UcWorkflowTests.cs" Link="UcWorkflowTests.cs" />
+    <Compile Include="../Shared/UcBrowserTests.cs" Link="UcBrowserTests.cs" />
+    <Compile Include="../BrowserDock.FrameworkTests/FixtureServer.cs" Link="Fixtures/FixtureServer.cs" />
     <None Include="../seleniumbase-reference/scenarios.json" Link="scenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/BrowserDock/BrowserDock.csproj" />
     <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
