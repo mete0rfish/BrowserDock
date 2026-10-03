@@ -140,8 +140,11 @@ public sealed class UcBrowserTests
                 if (closeChrome)
                 {
                     using var process = Process.GetProcessById(browser.Health.ChromePid!.Value);
+                    // Subscribe while the process still exists; enabling process
+                    // events after Kill can fail when Windows has already reaped it.
+                    var exited = TaskCompatibility.WaitForExitAsync(process, token);
                     process.Kill();
-                    await TaskCompatibility.WaitForExitAsync(process, token);
+                    await exited;
                 }
                 else
                 {
@@ -180,7 +183,8 @@ public sealed class UcBrowserTests
                 await browser.Uc.OpenWithDisconnectAsync(url, TimeSpan.FromSeconds(1), new() { Target = original });
         })!;
         var core = legacy ? (BrowserDockException)error.InnerException! : (BrowserDockException)error;
-        Assert.That(core.Category, Is.EqualTo(closeChrome ? ErrorCategory.ChromeExited : ErrorCategory.TargetClosed));
+        Assert.That(core.Category, Is.EqualTo(closeChrome ? ErrorCategory.ChromeExited : ErrorCategory.TargetClosed),
+            $"{core}\nStage: {error.Data["Navigation.Stage"]}; health: {browser.Health}");
         Assert.That(core.BrowserMayHaveAdvanced, Is.True);
         Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("uc-verify-state"));
         Assert.That(error.Data["Navigation.UcOperation"], Is.EqualTo("OpenWithDisconnect"));
