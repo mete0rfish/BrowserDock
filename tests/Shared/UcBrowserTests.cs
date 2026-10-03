@@ -155,6 +155,14 @@ public sealed class UcBrowserTests
                         .GetProperty("targetId").GetString();
                     var closed = await client.SendAsync("Target.closeTarget", new { targetId = id }, null, token);
                     Assert.That(closed.GetProperty("success").GetBoolean(), Is.True);
+                    // Closing is asynchronous. Establish the terminal condition
+                    // before letting the UC operation verify its return state.
+                    while (true)
+                    {
+                        var remaining = await client.SendAsync("Target.getTargets", null, null, token);
+                        if (!remaining.GetProperty("targetInfos").EnumerateArray().Any(t => t.GetProperty("targetId").GetString() == id)) break;
+                        await Task.Delay(20, token);
+                    }
                 }
             }
         });
