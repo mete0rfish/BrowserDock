@@ -24,7 +24,7 @@ public sealed class UcWorkflowTests
         var expected = new List<string> { "prepare:selected", attached ? "disconnect" : "confirm-disconnected" };
         if (replaces) expected.Add("replace");
         if (operation != UcOperation.Reconnect) expected.Add("navigate:Load");
-        if (reconnects) expected.Add("attach");
+        expected.Add(reconnects ? "attach" : "verify");
         Assert.That(context.Calls, Is.EqualTo(expected));
         Assert.That(context.State, Is.EqualTo(reconnects ? BrowserState.WebDriverAttached : BrowserState.CdpOnly));
         Assert.That(context.Generation, Is.EqualTo((attached ? 1 : 0) + (reconnects ? 1 : 0)));
@@ -174,6 +174,104 @@ public sealed class UcWorkflowTests
         Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("uc-prepare"));
     }
 
+    [TestCase(false, false), TestCase(false, true), TestCase(true, false), TestCase(true, true)]
+    public async Task EveryPublicUcCallPreservesQueuedCallerCancellation(bool legacy, bool alreadyCanceled)
+    {
+        var stages = 0;
+        await using var browser = Browser.NavigationFixtureForTest(new()
+        {
+            Driver = new() { ExecutablePath = "unused" },
+            StageHook = (_, _) => { stages++; return default; }
+        }, BrowserState.WebDriverAttached);
+        var health = browser.Health;
+        await browser.LifecycleGateForTest.WaitAsync();
+        try
+        {
+            foreach (var operation in new[] { "Disconnect", "Connect", "Reconnect", "Navigate", "Open", "OpenWithTab", "OpenWithReconnect", "OpenWithDisconnect" })
+            {
+                using var caller = new CancellationTokenSource();
+                if (alreadyCanceled) caller.Cancel();
+                var pending = PublicQueuedCall(browser, legacy, operation, caller.Token);
+                if (!alreadyCanceled) Assert.That(pending.IsCompleted, Is.False, operation);
+                caller.Cancel();
+                var error = Assert.CatchAsync<OperationCanceledException>(async () =>
+                    await TaskCompatibility.WaitAsync(pending, TimeSpan.FromSeconds(5)))!;
+                Assert.That(error.CancellationToken, Is.EqualTo(caller.Token), operation);
+                Assert.That(error.InnerException, Is.InstanceOf<OperationCanceledException>(), operation);
+                Assert.That(browser.Health, Is.EqualTo(health), operation);
+                Assert.That(browser.LifecycleGateForTest.CurrentCount, Is.Zero, operation);
+            }
+            Assert.That(stages, Is.Zero, "Canceled queued operations must perform no lifecycle work.");
+        }
+        finally { browser.LifecycleGateForTest.Release(); }
+        await browser.LifecycleGateForTest.WaitAsync();
+        browser.LifecycleGateForTest.Release();
+        Assert.That(stages, Is.Zero, "Canceled work must not dispatch after the gate is released.");
+    }
+
+    [TestCase(ErrorCategory.ChromeExited), TestCase(ErrorCategory.DevToolsEndpointFailure)]
+    [TestCase(ErrorCategory.TargetClosed), TestCase(ErrorCategory.TargetCrashed)]
+    public void DisconnectedReturnRechecksHealthAndTargetAfterHold(ErrorCategory category)
+    {
+        var original = new BrowserDockException(category, "Failure during hold");
+        var context = new Context(true) { FailCall = "verify", Failure = original };
+        var error = Assert.ThrowsAsync<BrowserDockException>(async () =>
+            await Run(context, UcOperation.OpenWithDisconnect, duration: TimeSpan.FromSeconds(1)))!;
+        Assert.That(context.Delays.Single(), Is.EqualTo(TimeSpan.FromSeconds(1)));
+        Assert.That(error, Is.SameAs(original));
+        Assert.That(error.BrowserMayHaveAdvanced, Is.True);
+        Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("uc-verify-state"));
+        Assert.That(error.Data["Navigation.UcOperation"], Is.EqualTo("OpenWithDisconnect"));
+        Assert.That(context.Calls.Last(), Is.EqualTo("verify"));
+        Assert.That(context.Calls.Count(x => x == "navigate:Load"), Is.EqualTo(1));
+        Assert.That(context.Calls, Does.Not.Contain("attach"));
+    }
+
+    [Test]
+    public void CancellationBeforeFinalVerificationCannotReturnSuccess()
+    {
+        using var caller = new CancellationTokenSource();
+        var context = new Context(true) { Stage = stage => { if (stage == "uc-verify-state") caller.Cancel(); } };
+        var error = Assert.ThrowsAsync<NavigationCanceledException>(async () =>
+            await Run(context, UcOperation.OpenWithDisconnect, token: caller.Token))!;
+        Assert.That(error.CancellationToken, Is.EqualTo(caller.Token));
+        Assert.That(error.BrowserMayHaveAdvanced, Is.True);
+        Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("uc-verify-state"));
+        Assert.That(context.Calls, Does.Not.Contain("verify"));
+        Assert.That(context.Calls, Does.Not.Contain("attach"));
+    }
+
+    private static Task PublicQueuedCall(Browser browser, bool legacy, string operation, CancellationToken token)
+    {
+        if (legacy)
+        {
+            var uc = new Legacy.Browser(browser).Uc;
+            return operation switch
+            {
+                "Disconnect" => uc.DisconnectAsync(token),
+                "Connect" => uc.ConnectAsync(token),
+                "Reconnect" => uc.ReconnectAsync(cancellationToken: token),
+                "Navigate" => uc.NavigateAsync(Url, cancellationToken: token),
+                "Open" => uc.OpenAsync(Url, cancellationToken: token),
+                "OpenWithTab" => uc.OpenWithTabAsync(Url, cancellationToken: token),
+                "OpenWithReconnect" => uc.OpenWithReconnectAsync(Url, cancellationToken: token),
+                _ => uc.OpenWithDisconnectAsync(Url, cancellationToken: token)
+            };
+        }
+        var core = browser.Uc;
+        return operation switch
+        {
+            "Disconnect" => core.DisconnectAsync(token).AsTask(),
+            "Connect" => core.ConnectAsync(token).AsTask(),
+            "Reconnect" => core.ReconnectAsync(cancellationToken: token).AsTask(),
+            "Navigate" => core.NavigateAsync(Url, cancellationToken: token).AsTask(),
+            "Open" => core.OpenAsync(Url, cancellationToken: token).AsTask(),
+            "OpenWithTab" => core.OpenWithTabAsync(Url, cancellationToken: token).AsTask(),
+            "OpenWithReconnect" => core.OpenWithReconnectAsync(Url, cancellationToken: token).AsTask(),
+            _ => core.OpenWithDisconnectAsync(Url, cancellationToken: token).AsTask()
+        };
+    }
+
     private static Task<PageResult?> Run(Context context, UcOperation operation, UcNavigationOptions? options = null, TimeSpan duration = default, CancellationToken token = default)
         => UcWorkflow.RunAsync(context, operation, operation == UcOperation.Reconnect ? null : Url, options ?? new(), duration, Budget, token, token);
     private static Task PublicCall(Browser browser, bool legacy, UcOperation operation, TimeSpan duration, CancellationToken token = default)
@@ -221,6 +319,7 @@ public sealed class UcWorkflowTests
         { Call("navigate:" + wait); if (Navigation is not null) await Navigation(token); Now += NavigationTime.Ticks; return Result; }
         public Task AttachAsync(CancellationToken token)
         { Call("attach"); State = BrowserState.WebDriverAttached; Generation++; AttachedAt = Now; return Task.CompletedTask; }
+        public Task VerifyAsync(CancellationToken token) { Call("verify"); return Task.CompletedTask; }
         public TimeSpan Elapsed(long since) => TimeSpan.FromTicks(Now - since);
         public Task DelayAsync(TimeSpan duration, CancellationToken token) { token.ThrowIfCancellationRequested(); Delays.Add(duration); Now += duration.Ticks; return Task.CompletedTask; }
         public ValueTask StageAsync(string stage, CancellationToken token) { Stage?.Invoke(stage); return default; }

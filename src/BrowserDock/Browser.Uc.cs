@@ -56,6 +56,11 @@ public sealed partial class Browser
             using var deadline = new Deadline(browser.options.Timeouts.Reconnect, token);
             await browser.AttachCoreAsync(true, deadline.Token).ConfigureAwait(false);
         }
+        public async Task VerifyAsync(CancellationToken token)
+        {
+            await browser.ProbeAsync(token).ConfigureAwait(false);
+            browser.cdp!.Resolve();
+        }
         public TimeSpan Elapsed(long since) => TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - since) / (double)Stopwatch.Frequency);
         public Task DelayAsync(TimeSpan duration, CancellationToken token) => Task.Delay(duration, token);
         public ValueTask StageAsync(string stage, CancellationToken token) => browser.StageAsync(stage, token);

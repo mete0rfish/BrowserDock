@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using BrowserDock.Cdp;
 using BrowserDock.FrameworkTests;
 using NUnit.Framework;
 using Legacy = BrowserDock.Legacy;
@@ -123,6 +124,64 @@ public sealed class UcBrowserTests
             await browser.ExecuteCdpAsync("Browser.getVersion");
         }
         finally { caller.Cancel(); try { await pending; } catch (OperationCanceledException) { } }
+    }
+
+    [TestCase(false, false), TestCase(false, true), TestCase(true, false), TestCase(true, true)]
+    public async Task FailureDuringDisconnectedHoldIsNotReportedAsSuccess(bool legacy, bool closeChrome)
+    {
+        using var server = await FixtureServer.StartAsync();
+        var url = new Uri(server.Url, "/page");
+        Browser browser = null!;
+        await using var owned = await Browser.StartAsync(options with
+        {
+            StageHook = async (stage, token) =>
+            {
+                if (stage != "uc-hold") return;
+                if (closeChrome)
+                {
+                    using var process = Process.GetProcessById(browser.Health.ChromePid!.Value);
+                    process.Kill();
+                    await TaskCompatibility.WaitForExitAsync(process, token);
+                }
+                else
+                {
+                    // A separate CDP client models a user closing the selected
+                    // fixture page while the UC operation owns the lifecycle gate.
+                    await using var client = new CdpConnection();
+                    await client.ConnectAsync(browser.TestSnapshot.Endpoint!, token);
+                    var targets = await client.SendAsync("Target.getTargets", null, null, token);
+                    var id = targets.GetProperty("targetInfos").EnumerateArray()
+                        .Single(t => t.GetProperty("type").GetString() == "page" && t.GetProperty("url").GetString() == url.AbsoluteUri)
+                        .GetProperty("targetId").GetString();
+                    var closed = await client.SendAsync("Target.closeTarget", new { targetId = id }, null, token);
+                    Assert.That(closed.GetProperty("success").GetBoolean(), Is.True);
+                }
+            }
+        });
+        browser = owned;
+        var original = (await browser.GetTargetsAsync()).Single().Key;
+        await browser.ExecuteCdpAsync("Target.createTarget", new { url = "about:blank" });
+        var bystander = (await browser.GetTargetsAsync()).Single(t => t.Key != original).Key;
+        var generation = browser.SessionGeneration;
+        var error = Assert.CatchAsync<Exception>(async () =>
+        {
+            if (legacy)
+                await new Legacy.Browser(browser).Uc.OpenWithDisconnectAsync(url, TimeSpan.FromSeconds(1),
+                    new() { Target = new Legacy.TargetKey(original.Value) });
+            else
+                await browser.Uc.OpenWithDisconnectAsync(url, TimeSpan.FromSeconds(1), new() { Target = original });
+        })!;
+        var core = legacy ? (BrowserDockException)error.InnerException! : (BrowserDockException)error;
+        Assert.That(core.Category, Is.EqualTo(closeChrome ? ErrorCategory.ChromeExited : ErrorCategory.TargetClosed));
+        Assert.That(core.BrowserMayHaveAdvanced, Is.True);
+        Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("uc-verify-state"));
+        Assert.That(error.Data["Navigation.UcOperation"], Is.EqualTo("OpenWithDisconnect"));
+        Assert.That(browser.Health.DriverPid, Is.Null);
+        Assert.That(browser.SessionGeneration, Is.EqualTo(generation));
+        Assert.That(browser.State, Is.EqualTo(closeChrome ? BrowserState.Faulted : BrowserState.CdpOnly));
+        if (!closeChrome)
+            Assert.That((await browser.GetTargetsAsync()).Select(t => t.Key), Is.EqualTo(new[] { bystander }),
+                "Closing the controlled target must not navigate or select the surviving page.");
     }
 
     private static async Task Open(Browser browser, bool legacy, string operation, Uri url, TargetKey? target = null, CancellationToken token = default)

@@ -52,6 +52,10 @@ waiting for a full load is inappropriate; the facade does not silently change Lo
 into Commit. Redirects and same-document navigation retain Core semantics. A
 download is a terminal NavigationOutcome.Download and still observes the requested
 hold and final attachment policy. Target closure/crash is an error, not a load.
+Helpers that return disconnected probe Chrome/CDP and resolve the controlled target
+again after the hold, within the same operation budget (`uc-verify-state`). A prior
+load milestone cannot turn Chrome exit or target closure during the hold into a
+successful result. No surviving tab is selected as a fallback.
 
 ## Cancellation and failure
 
@@ -69,6 +73,10 @@ navigation or attachment begins; an early failure need not have completed that s
 Timeout is OperationTimedOut, distinct from caller cancellation. Navigation.Stage
 and Navigation.UcOperation in Exception.Data retain stage context through Legacy.
 The more specific CDP navigation stage is retained when available.
+All UC methods preserve the caller's CancellationToken even when cancellation
+occurs while queued at the lifecycle gate or before admission. Such canceled calls
+perform no remote work and retain the existing attachment. The UC boundary leaves
+already-normalized navigation errors, timeout categories and progress metadata intact.
 
 ## Examples
 

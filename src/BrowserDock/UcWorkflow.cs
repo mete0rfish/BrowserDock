@@ -15,6 +15,7 @@ internal interface IUcContext
     Task ReplaceAsync(CancellationToken token);
     Task<PageResult> NavigateAsync(Uri url, NavigationWaitUntil wait, CancellationToken token);
     Task AttachAsync(CancellationToken token);
+    Task VerifyAsync(CancellationToken token);
     TimeSpan Elapsed(long since);
     Task DelayAsync(TimeSpan duration, CancellationToken token);
     ValueTask StageAsync(string stage, CancellationToken token);
@@ -81,6 +82,13 @@ internal static class UcWorkflow
                 await Stage("uc-reconnect").ConfigureAwait(false);
                 advanced = true;
                 await context.AttachAsync(token).ConfigureAwait(false);
+            }
+            else
+            {
+                // A milestone is a snapshot, not a health guarantee throughout
+                // the hold. Attach performs its own probe/target validation.
+                await Stage("uc-verify-state").ConfigureAwait(false);
+                await context.VerifyAsync(token).ConfigureAwait(false);
             }
             return result;
         }

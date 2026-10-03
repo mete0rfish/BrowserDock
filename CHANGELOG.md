@@ -6,6 +6,10 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Revalidate Chrome/CDP and the controlled target after UC disconnected holds;
+  preserve caller cancellation tokens for every UC method, including queued and
+  already-canceled calls (#29).
+
 - Preserve Chrome navigation rejection text, navigation-stage diagnostics and
   original cancellation causes through Core/Legacy error and timeout mapping (#41).
 
