@@ -6,4 +6,6 @@
   <Project Path="tests/BrowserDock.FixtureHost/BrowserDock.FixtureHost.csproj" />
   <Project Path="samples/Lifecycle/Lifecycle.csproj" />
   <Project Path="samples/Framework481/Framework481.csproj" />
+  <Project Path="samples/UcLifecycle/UcLifecycle.csproj" />
+  <Project Path="samples/UcFramework481/UcFramework481.csproj" />
 </Solution>

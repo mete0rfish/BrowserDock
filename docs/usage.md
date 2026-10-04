@@ -49,6 +49,10 @@ If `ChromeBinaryPath` is omitted, the library searches standard installation loc
 
 ## API rules
 
+For explicit UC lifecycle/navigation helpers, use [browser.Uc](uc-lifecycle.md).
+Its minimum disconnected duration includes navigation time; Core's `ReconnectDelay`
+below remains an additional delay after navigation completion.
+
 - `StartAsync` copies the Chrome arguments, additional URL schemes, new-document
   scripts and patch-strategy collection before its first asynchronous wait, then
   validates and uses that same snapshot throughout startup and later operations.

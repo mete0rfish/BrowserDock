@@ -513,3 +513,8 @@ Validate these architecture assumptions on a real Windows fixture first:
 6. Do optional recipes match the declared count and remain executable on real Stable/Stable-1 binaries?
 
 If questions 1–4 invalidate the design, revise the architecture decisions and the specification's requirements/state diagrams/acceptance criteria together rather than hiding the discrepancy in implementation workarounds.
+
+
+## Opt-in UC lifecycle facade (#29)
+
+`Browser.Uc` provides explicit Disconnect, Connect, Reconnect and current/replacement-page Open helpers, with equivalent Task methods in Legacy. See [UC lifecycle](uc-lifecycle.md) for the state matrix, typed minimum disconnected duration, operation budgets and failure outcomes. Composite operations hold the Browser lifecycle gate once and reuse its owned-resource primitives; they do not nest public lifecycle calls or replay uncertain navigation. A monotonic timestamp captured at confirmed driver exit allows navigation and the disconnected interval to overlap. Existing Core `NavigateAsync` and its post-navigation `ReconnectDelay` retain their meaning. UC startup/script profiles and driver recipes remain separate work; implementation is not an upstream-equivalence claim.

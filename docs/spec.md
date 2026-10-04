@@ -900,3 +900,8 @@ Do not implement patching or navigation-bypass features before steps 1–3 are c
 - ChromeDriver binary patterns were not checked against actual Stable artifacts.
 - The existing C# implementation's NuGet binary was not executed. Reflection-failure findings come from static comparison of pinned source and Selenium 4.44.0 source.
 - Chrome, ChromeDriver, Selenium, and CDP change rapidly. Refresh this document's source SHAs, official support policies, and CfT matrix before implementation and every release.
+
+
+## Opt-in UC lifecycle facade (#29)
+
+`Browser.Uc` provides explicit Disconnect, Connect, Reconnect and current/replacement-page Open helpers, with equivalent Task methods in Legacy. See [UC lifecycle](uc-lifecycle.md) for the state matrix, typed minimum disconnected duration, operation budgets and failure outcomes. Composite operations hold the Browser lifecycle gate once and reuse its owned-resource primitives; they do not nest public lifecycle calls or replay uncertain navigation. A monotonic timestamp captured at confirmed driver exit allows navigation and the disconnected interval to overlap. Existing Core `NavigateAsync` and its post-navigation `ReconnectDelay` retain their meaning. UC startup/script profiles and driver recipes remain separate work; implementation is not an upstream-equivalence claim.
