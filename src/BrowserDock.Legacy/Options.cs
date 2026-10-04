@@ -15,18 +15,24 @@ public sealed class BrowserOptions
     public IList<string> ChromeArguments { get; set; } = new List<string>();
     public IList<string> AdditionalUrlSchemes { get; set; } = new List<string>();
     public IList<string> NewDocumentScripts { get; set; } = new List<string>();
-    public bool RemoveDiscoveredCdcProperties { get; set; }
+    private bool? cdcPropertyRemoval;
+    public bool RemoveDiscoveredCdcProperties { get => cdcPropertyRemoval ?? false; set => cdcPropertyRemoval = value; }
+    public UcLaunchProfile? UcProfile { get; set; }
     public ILogger? Logger { get; set; }
-    internal Core.BrowserOptions Snapshot() => new()
+    internal Core.BrowserOptions Snapshot()
     {
-        ChromeBinaryPath = ChromeBinaryPath,
-        Driver = (Driver ?? throw new ArgumentNullException(nameof(Driver))).Snapshot(),
-        Profile = new() { Directory = (Profile ?? throw new ArgumentNullException(nameof(Profile))).Directory },
-        BrowserOwnership = (Core.BrowserOwnership)BrowserOwnership, PatchMode = (Core.DriverPatchMode)PatchMode,
-        Timeouts = (Timeouts ?? throw new ArgumentNullException(nameof(Timeouts))).Snapshot(),
-        ChromeArguments = ChromeArguments.ToArray(), AdditionalUrlSchemes = AdditionalUrlSchemes.ToArray(), NewDocumentScripts = NewDocumentScripts.ToArray(),
-        RemoveDiscoveredCdcProperties = RemoveDiscoveredCdcProperties, Logger = Logger
-    };
+        var result = new Core.BrowserOptions
+        {
+            ChromeBinaryPath = ChromeBinaryPath,
+            Driver = (Driver ?? throw new ArgumentNullException(nameof(Driver))).Snapshot(),
+            Profile = new() { Directory = (Profile ?? throw new ArgumentNullException(nameof(Profile))).Directory },
+            BrowserOwnership = (Core.BrowserOwnership)BrowserOwnership, PatchMode = (Core.DriverPatchMode)PatchMode,
+            Timeouts = (Timeouts ?? throw new ArgumentNullException(nameof(Timeouts))).Snapshot(),
+            ChromeArguments = ChromeArguments.ToArray(), AdditionalUrlSchemes = AdditionalUrlSchemes.ToArray(), NewDocumentScripts = NewDocumentScripts.ToArray(),
+            UcProfile = UcProfile?.Snapshot(), Logger = Logger
+        };
+        return cdcPropertyRemoval is { } value ? result with { RemoveDiscoveredCdcProperties = value } : result;
+    }
 }
 public sealed class ProfileOptions { public string? Directory { get; set; } }
 public sealed class DriverArtifactOptions

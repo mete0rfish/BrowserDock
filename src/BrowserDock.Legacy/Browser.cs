@@ -11,6 +11,7 @@ public sealed class Browser
     public BrowserState State => (BrowserState)inner.State;
     public long SessionGeneration => inner.SessionGeneration;
     public long AttachmentEpoch => inner.AttachmentEpoch;
+    public UcLaunchProfileInfo? UcProfile => inner.UcProfile is { } profile ? new(profile) : null;
     public BrowserHealthSnapshot Health => new(inner.Health);
     public UcBrowser Uc => new(inner.Uc);
     public static Task<Browser> StartAsync(BrowserOptions options, CancellationToken cancellationToken = default)

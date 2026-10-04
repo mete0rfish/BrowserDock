@@ -6,7 +6,7 @@
 
 **Experimental.** BrowserDock manages a separately launched Chrome process, an independent CDP connection, and replaceable WebDriver sessions on Windows. Its lifecycle design is inspired by SeleniumBase UC Mode. This independent project is not an official SeleniumBase .NET binding.
 
-The [SeleniumBase compatibility matrix](docs/seleniumbase-compatibility.md) defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts, current gaps, intentional differences and required evidence. Opt-in [UC lifecycle/navigation helpers](docs/uc-lifecycle.md) are available through `browser.Uc` in Core and Legacy; launch profiles, real driver recipes and complete SeleniumBase parity remain separate work.
+The [SeleniumBase compatibility matrix](docs/seleniumbase-compatibility.md) defines the selected Phase 1 Driver/UC and Phase 2 CDP contracts, current gaps, intentional differences and required evidence. Opt-in [UC lifecycle/navigation helpers](docs/uc-lifecycle.md) are available through `browser.Uc` in Core and Legacy. A separate [UC launch profile](docs/uc-launch-profile.md) composes startup/script settings; its Windows execution is unverified. Real driver recipes and complete SeleniumBase parity remain separate work.
 
 Keep Chrome alive while disconnecting WebDriver, then create a new session against the same browser. Old leases and elements fail locally after disconnection; callers explicitly acquire new references.
 

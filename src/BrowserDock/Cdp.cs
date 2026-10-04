@@ -22,6 +22,7 @@ internal sealed class CdpConnection : IAsyncDisposable
     internal (int Pending, int Tasks, int Subscribers, bool SocketOpen) ResourcesForTest =>
         (pending.Count, (reader.IsCompleted ? 0 : 1) + (dispatcher.IsCompleted ? 0 : 1), Event?.GetInvocationList().Length ?? 0, socket.State == WebSocketState.Open);
     internal void InterruptForTest() => Fail(new IOException("Injected socket interruption."));
+    internal void Invalidate() => Fail(new IOException("Document-script registration became uncertain; recover the CDP connection."));
     public async Task ConnectAsync(Uri endpoint, CancellationToken token)
     {
         if (endpoint.Scheme != "ws" || !endpoint.IsLoopback) throw new BrowserDockException(ErrorCategory.ConfigurationError, "CDP requires a loopback WebSocket endpoint.");
@@ -107,13 +108,21 @@ internal sealed class CdpConnection : IAsyncDisposable
 internal sealed record TargetEntry(TargetKey Key, string Id, string Url, string Title, string? Opener);
 internal sealed record PageSession(TargetEntry Target, string SessionId);
 internal sealed record PageResult(Uri Url, IReadOnlyList<string> Redirects, NavigationOutcome Outcome);
-internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts, bool removeDiscoveredCdcProperties = false) : IAsyncDisposable
+internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts, bool removeDiscoveredCdcProperties = false, bool ucProfile = false) : IAsyncDisposable
 {
+    private sealed class ScriptSession(string targetId)
+    {
+        internal string TargetId { get; } = targetId;
+        internal HashSet<string> Sources { get; } = new(StringComparer.Ordinal);
+        internal UcScriptRegistration Uc { get; } = new();
+    }
     private CdpConnection connection = new();
     private readonly ConcurrentDictionary<string, TargetEntry> targets = new();
     private readonly ConcurrentDictionary<string, string> sessions = new();
     private readonly ConcurrentDictionary<string, byte> crashed = new();
-    private readonly Dictionary<string, HashSet<string>> registered = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ScriptSession> registered = new(StringComparer.Ordinal);
+    private readonly HashSet<string> knownCdcProperties = new(StringComparer.Ordinal);
+    internal int ScriptSessionsForTest => registered.Count;
     private readonly object registrySync = new();
     private readonly Dictionary<string, long> revisions = new(StringComparer.Ordinal);
     private long eventRevision;
@@ -153,6 +162,8 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 foreach (var command in commands.EnumerateArray()) available.Add(domain.GetProperty("domain").GetString() + "." + command.GetProperty("name").GetString());
         foreach (var method in new[] { "Browser.getVersion", "Browser.close", "Browser.setDownloadBehavior", "Target.setDiscoverTargets", "Target.getTargets", "Target.attachToTarget", "Target.activateTarget", "Target.createTarget", "Target.closeTarget", "Page.enable", "Page.navigate", "Page.getFrameTree", "Page.setLifecycleEventsEnabled", "Page.addScriptToEvaluateOnNewDocument", "Runtime.enable", "Runtime.evaluate", "Runtime.callFunctionOn", "Network.enable" })
             if (!available.Contains(method)) throw new BrowserDockException(ErrorCategory.ProtocolError, $"Required CDP method is missing: {method}.");
+        if (ucProfile && !available.Contains("Page.removeScriptToEvaluateOnNewDocument"))
+            throw new BrowserDockException(ErrorCategory.ProtocolError, "UC profile requires Page.removeScriptToEvaluateOnNewDocument.");
     }
     private void OnEvent(CdpEvent item)
     {
@@ -171,13 +182,23 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
             var id = item.Parameters.GetProperty("targetId").GetString()!;
             revisions[id] = ++eventRevision;
             targets.TryRemove(id, out _); sessions.TryRemove(id, out _);
+            DiscardTargetScripts(id);
         }
         else if (item.Method == "Target.detachedFromTarget")
         {
             var session = item.Parameters.GetProperty("sessionId").GetString();
             foreach (var pair in sessions.Where(x => x.Value == session)) sessions.TryRemove(pair.Key, out _);
+            if (session is not null) DiscardSessionScripts(session);
         }
         else if (item.Method == "Target.targetCrashed") crashed[item.Parameters.GetProperty("targetId").GetString()!] = 0;
+    }
+    private void DiscardSessionScripts(string session)
+    {
+        if (registered.TryRemove(session, out var entry)) entry.Uc.Detach();
+    }
+    private void DiscardTargetScripts(string target)
+    {
+        foreach (var pair in registered.Where(x => x.Value.TargetId == target)) DiscardSessionScripts(pair.Key);
     }
     private void Upsert(JsonElement info)
     {
@@ -200,7 +221,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 if (!revisions.TryGetValue(id, out var revision) || revision <= barrier) Upsert(info);
             }
             foreach (var id in targets.Keys.Where(x => !seen.Contains(x)))
-                if (!revisions.TryGetValue(id, out var revision) || revision <= barrier) { targets.TryRemove(id, out _); sessions.TryRemove(id, out _); }
+                if (!revisions.TryGetValue(id, out var revision) || revision <= barrier) { targets.TryRemove(id, out _); sessions.TryRemove(id, out _); DiscardTargetScripts(id); }
             foreach (var pair in revisions.Where(x => x.Value <= barrier && !targets.ContainsKey(x.Key)).ToArray()) revisions.Remove(pair.Key);
         }
     }
@@ -226,39 +247,72 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         if (sessions.TryGetValue(target.Id, out var existing)) return new(target, existing);
         var result = await BrowserAsync("Target.attachToTarget", new { targetId = target.Id, flatten = true }, token).ConfigureAwait(false);
         var session = result.GetProperty("sessionId").GetString()!;
-        await connection.SendAsync("Page.enable", null, session, token).ConfigureAwait(false);
-        await connection.SendAsync("Runtime.enable", null, session, token).ConfigureAwait(false);
-        await connection.SendAsync("Page.setLifecycleEventsEnabled", new { enabled = true }, session, token).ConfigureAwait(false);
-        await ApplyScriptsAsync(session, token).ConfigureAwait(false);
-        sessions[target.Id] = session;
-        return new(target, session);
+        var scriptSession = new ScriptSession(target.Id);
+        registered[session] = scriptSession;
+        try
+        {
+            await connection.SendAsync("Page.enable", null, session, token).ConfigureAwait(false);
+            await connection.SendAsync("Runtime.enable", null, session, token).ConfigureAwait(false);
+            await connection.SendAsync("Page.setLifecycleEventsEnabled", new { enabled = true }, session, token).ConfigureAwait(false);
+            await ApplyScriptsAsync(session, token).ConfigureAwait(false);
+            lock (registrySync)
+            {
+                scriptSession.Uc.EnsureAttached();
+                Resolve(target.Key);
+                sessions[target.Id] = session;
+            }
+            return new(target, session);
+        }
+        catch { DiscardSessionScripts(session); if (ucProfile) connection.Invalidate(); throw; }
     }
-    public async Task PrepareControlledAsync(CancellationToken token)
+    public async Task PrepareControlledAsync(CancellationToken token, bool newAttachment = false)
     {
         var session = await SessionAsync(Controlled, token).ConfigureAwait(false);
-        await ApplyScriptsAsync(session.SessionId, token).ConfigureAwait(false);
+        await ApplyScriptsAsync(session.SessionId, token, newAttachment).ConfigureAwait(false);
     }
-    private async Task ApplyScriptsAsync(string session, CancellationToken token)
+    private async Task ApplyScriptsAsync(string session, CancellationToken token, bool newAttachment = false)
     {
+        if (!registered.TryGetValue(session, out var registration))
+            throw new BrowserDockException(ErrorCategory.DevToolsEndpointFailure, "The document-script session no longer exists.");
+        registration.Uc.EnsureAttached();
         var registeredScripts = scripts.ToList();
+        string? removalScript = null;
         if (removeDiscoveredCdcProperties)
         {
             const string discovery = "(() => { const names = new Set(); for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of Object.getOwnPropertyNames(p)) if(/^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$/.test(k)) names.add(k); return [...names].sort(); })()";
             var found = await connection.SendAsync("Runtime.evaluate", new { expression = discovery, returnByValue = true }, session, token).ConfigureAwait(false);
+            if (ucProfile && (!found.TryGetProperty("result", out var discoveryResult) ||
+                !discoveryResult.TryGetProperty("value", out var discoveryValue) || discoveryValue.ValueKind != JsonValueKind.Array))
+                throw new BrowserDockException(ErrorCategory.ProtocolError, "UC property discovery did not return an array.");
             if (found.GetProperty("result").TryGetProperty("value", out var names) && names.ValueKind == JsonValueKind.Array)
             {
                 var verified = names.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Where(x => System.Text.RegularExpressions.Regex.IsMatch(x, "^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$")).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToArray();
-                if (verified.Length > 0) registeredScripts.Add($"(() => {{ const names = {JsonSerializer.Serialize(verified)}; for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of names) {{ try {{ delete p[k]; }} catch {{}} }} }})()");
+                if (ucProfile)
+                {
+                    // Keep validated names across documents, target replacement and transport recovery.
+                    // A successfully cleaned document is not evidence that future documents need no cleanup.
+                    knownCdcProperties.UnionWith(verified);
+                    verified = knownCdcProperties.OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                }
+                if (verified.Length > 0) removalScript = $"(() => {{ const names = {JsonSerializer.Serialize(verified)}; for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of names) {{ try {{ delete p[k]; }} catch {{}} }} }})()";
             }
         }
-        if (!registered.TryGetValue(session, out var installed)) registered[session] = installed = new(StringComparer.Ordinal);
+        if (ucProfile)
+        {
+            if (removalScript is not null) registeredScripts.Insert(0, removalScript);
+            await registration.Uc.ReconcileAsync(registeredScripts.Distinct(StringComparer.Ordinal).ToArray(),
+                (method, args, ct) => connection.SendAsync(method, args, session, ct), connection.Invalidate, token, newAttachment).ConfigureAwait(false);
+            return;
+        }
+        if (removalScript is not null) registeredScripts.Add(removalScript);
         foreach (var script in registeredScripts.Distinct(StringComparer.Ordinal))
-            if (!installed.Contains(script)) { await connection.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, session, token).ConfigureAwait(false); installed.Add(script); }
+            if (!registration.Sources.Contains(script)) { await connection.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, session, token).ConfigureAwait(false); registration.Sources.Add(script); }
     }
     public Task<JsonElement> BrowserAsync(string method, object? args, CancellationToken token) => connection.SendAsync(method, args, null, token);
     public async Task<JsonElement> PageAsync(string method, object? args, TargetKey? target, CancellationToken token)
     {
         var session = await SessionAsync(target, token).ConfigureAwait(false);
+        if (ucProfile && method == "Page.navigate") await ApplyScriptsAsync(session.SessionId, token).ConfigureAwait(false);
         return await connection.SendAsync(method, args, session.SessionId, token).ConfigureAwait(false);
     }
     public async Task ReplaceAsync(CancellationToken token)
@@ -275,7 +329,9 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     {
         connection.Event -= OnEvent;
         await connection.DisposeAsync().ConfigureAwait(false);
-        connection = new(); sessions.Clear(); registered.Clear();
+        connection = new(); sessions.Clear();
+        foreach (var entry in registered.Values) entry.Uc.Detach();
+        registered.Clear();
         await InitializeAsync(token).ConfigureAwait(false);
         if (Controlled is not null) await SessionAsync(Controlled, token).ConfigureAwait(false);
     }
@@ -306,6 +362,11 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         try
         {
             session = await SessionAsync(options.Target ?? Controlled, token).ConfigureAwait(false);
+            if (ucProfile)
+            {
+                stage = "document-scripts";
+                await ApplyScriptsAsync(session.SessionId, token).ConfigureAwait(false);
+            }
             stage = "Network.enable";
             await connection.SendAsync("Network.enable", null, session.SessionId, token).ConfigureAwait(false);
             stage = "Page.getFrameTree";
@@ -402,5 +463,11 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         }
         finally { if (observing) connection.Event -= Observe; }
     }
-    public async ValueTask DisposeAsync() { connection.Event -= OnEvent; await connection.DisposeAsync().ConfigureAwait(false); }
+    public async ValueTask DisposeAsync()
+    {
+        connection.Event -= OnEvent;
+        await connection.DisposeAsync().ConfigureAwait(false);
+        foreach (var entry in registered.Values) entry.Uc.Detach();
+        registered.Clear(); sessions.Clear(); knownCdcProperties.Clear();
+    }
 }

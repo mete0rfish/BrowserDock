@@ -1,5 +1,9 @@
 # Implementation and verification record
 
+See [2026-10-04 issue-30 portable verification](issue-30-validation.md) for the
+opt-in launch/script profile, retained intermittent test failure and pending
+Windows acceptance.
+
 See [2026-09-29 issue-26 verification](issue-26-validation.md) for the startup
 snapshot fix, before/after regressions, runtime matrix and remaining Windows UI
 failures. The records below retain their original dates and scope.

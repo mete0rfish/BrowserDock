@@ -50,6 +50,8 @@ If `ChromeBinaryPath` is omitted, the library searches standard installation loc
 ## API rules
 
 For explicit UC lifecycle/navigation helpers, use [browser.Uc](uc-lifecycle.md).
+For opt-in startup/script configuration, use [UcLaunchProfile](uc-launch-profile.md).
+It is independent of calling the lifecycle facade; Windows profile validation is pending.
 Its minimum disconnected duration includes navigation time; Core's `ReconnectDelay`
 below remains an additional delay after navigation completion.
 
