@@ -4,6 +4,13 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ## Unreleased
 
+### Changed
+
+- Temporarily quarantine the nested-frame reacquisition browser test tracked in
+  #41. Preserve its assertions in a separate manually dispatched Windows suite;
+  normal/stress runs exclude it and report the coverage gap. This is not a fix
+  for the intermittent navigation failure.
+
 ### Fixed
 
 - Revalidate Chrome/CDP and the controlled target after UC disconnected holds;

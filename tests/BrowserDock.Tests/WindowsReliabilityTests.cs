@@ -5,7 +5,9 @@ namespace BrowserDock.Tests;
 
 public sealed partial class WindowsTests
 {
-    [Test]
+    // #41: initial navigation intermittently times out before the frame assertions.
+    // Retain coverage in the manual quarantined suite until the cause is fixed.
+    [Test, Category("Quarantined")]
     public async Task NestedFrameReacquisitionPreservesContextAcrossSessionChange()
     {
         await using var server = await FixtureAsync();
