@@ -164,11 +164,13 @@ Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script 
 
 #### Manually requested PR checks
 
-Add the **`ci:run`** repository label to a PR to start Common contracts, Secret scan,
-and Windows hosted browser tests. Create the label under **Issues → Labels** if it
-does not exist. The workflows accept only the `labeled` PR activity and check the
+Add **`ci:required`** to a PR to run only the six required checks: Common contracts
+(including Windows common/.NET Framework tests) and Secret scan. This label does
+not start actual browser tests. Add **`ci:run`** instead to also run Windows hosted
+browser tests. Create the selected label under **Issues → Labels** if it does not
+exist. The workflows accept only the `labeled` PR activity and check the
 label being added, so PR creation, pushes, and a label left attached do not start
-CI. After new commits or a base-branch update, remove and re-add `ci:run` to test
+CI. After new commits or a base-branch update, remove and re-add the selected label to test
 the current revision. PR runs check out GitHub's test merge commit with the base
 branch; resolve merge conflicts before requesting them.
 
