@@ -92,10 +92,10 @@ await browser.WaitForAbsentAsync(Locator.Css(".loading"), null, cancellationToke
 
 ## Scope and evidence
 
-The [guarded click API](element-clicks.md) builds on these wait contracts.
+The [guarded click](element-clicks.md) and [text input](element-input.md) APIs build on these wait contracts.
 
 This is the waits/value-read slice of [#32](https://github.com/mete0rfish/BrowserDock/issues/32).
-Hidden-or-absent waits, text waits, multiple-element search, high-level typing,
+Hidden-or-absent waits, text waits, multiple-element search, press-keys helpers,
 ambient-frame compatibility, screenshots and assertion helpers remain follow-up
 work. No SeleniumBase equivalence claim is added by this slice.
 

@@ -33,6 +33,10 @@ internal sealed class GuardedCommands(Browser browser, WebDriverLease lease) : I
         => browser.WaitForElementForLeaseAsync(locator, options, false, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => browser.WaitForElementForLeaseAsync(locator, options, true, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.InputForLeaseAsync(locator, text, true, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.InputForLeaseAsync(locator, text, false, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => browser.ClickForLeaseAsync(locator, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)

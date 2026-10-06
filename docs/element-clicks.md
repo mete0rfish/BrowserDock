@@ -62,7 +62,8 @@ reconnection or CDP backend selection.
 ## Scope and evidence
 
 This is another partial implementation of [#32](https://github.com/mete0rfish/BrowserDock/issues/32).
-Typing, additional waits, multiple-element lookup and compatibility context remain
+[Text input](element-input.md) builds on the same guards. Press-keys helpers,
+additional waits, multiple-element lookup and compatibility context remain
 follow-up work. Adding the member to Core/Legacy `IBrowserCommands` requires custom
 implementers to update their implementations during this 0.x API expansion.
 
