@@ -398,12 +398,17 @@ public sealed class NavigationContractTests
         finally { canceled.Cancel(); }
     }
 
-    private sealed class ProtocolFixture : IAsyncDisposable
+    internal sealed class ProtocolFixture : IAsyncDisposable
     {
         private LocalServer server = null!;
         public Uri Endpoint => new UriBuilder(server.Url) { Scheme = "ws", Path = "/devtools/browser/fixture" }.Uri;
         public int PageCallsWithoutSession;
         public int ScriptRegistrations;
+        public int ScriptRemovals;
+        public bool OmitScriptRemovalMethod;
+        public bool SessionPerTarget;
+        public string[] CdcNames = ["cdc_abcdefghijklmnopqrstuv_Array", "location", "untrusted');throw 1;//", "cdc_abcdefghijklmnopqrstuv_Array"];
+        public System.Collections.Concurrent.ConcurrentQueue<string> Calls = new();
         public int EmptySnapshotsRemaining;
         public int DiscoveryRequests;
         public int CreatedTargets;
@@ -430,6 +435,7 @@ public sealed class NavigationContractTests
                     ["Browser"] = ["getVersion", "close", "setDownloadBehavior"], ["Target"] = ["setDiscoverTargets", "getTargets", "attachToTarget", "activateTarget", "createTarget", "closeTarget"],
                     ["Page"] = ["enable", "navigate", "getFrameTree", "setLifecycleEventsEnabled", "addScriptToEvaluateOnNewDocument"], ["Runtime"] = ["enable", "evaluate", "callFunctionOn"], ["Network"] = ["enable"]
                 };
+                if (!OmitScriptRemovalMethod) names["Page"] = names["Page"].Concat(new[] { "removeScriptToEvaluateOnNewDocument" }).ToArray();
                 await context.Response.WriteAsJsonAsync(new { domains = names.Select(pair => new { domain = pair.Key, commands = pair.Value.Select(name => new { name }) }) }); return;
             }
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
@@ -442,6 +448,7 @@ public sealed class NavigationContractTests
                     do { message = await socket.ReceiveAsync(bytes, context.RequestAborted); if (message.MessageType == WebSocketMessageType.Close) return; stream.Write(bytes, 0, message.Count); } while (!message.EndOfMessage);
                     using var document = JsonDocument.Parse(stream.ToArray());
                     var root = document.RootElement; var method = root.GetProperty("method").GetString()!;
+                    Calls.Enqueue(method);
                     if (method == "Target.attachToTarget") Interlocked.Increment(ref AttachRequests);
                     if (method == HoldMethod) { HeldRequest.TrySetResult(true); continue; }
                     if ((method.StartsWith("Page.", StringComparison.Ordinal) || method.StartsWith("Runtime.", StringComparison.Ordinal)) && !root.TryGetProperty("sessionId", out _)) Interlocked.Increment(ref PageCallsWithoutSession);
@@ -450,23 +457,28 @@ public sealed class NavigationContractTests
                         "Browser.getVersion" => new { product = "Chrome/150.0.1.0", protocolVersion = "1.3" },
                         "Target.getTargets" => Targets(),
                         "Target.createTarget" => CreateTarget(),
-                        "Target.attachToTarget" => new { sessionId = "session-page" },
+                        "Target.attachToTarget" => new { sessionId = SessionPerTarget ? "session-" + root.GetProperty("params").GetProperty("targetId").GetString() : "session-page" },
                         "Page.getFrameTree" => new { frameTree = new { frame = new { id = "main", loaderId = "old-loader", url = "about:blank" } } },
                         "Page.navigate" => new { frameId = "main", loaderId = "new-loader" },
                         "Runtime.evaluate" => new { result = new { type = "string", value = "http://fixture/page" } },
                         _ => new { }
                     };
                     if (method == "Runtime.evaluate" && root.GetProperty("params").GetProperty("expression").GetString()!.Contains("const names = new Set()", StringComparison.Ordinal))
-                        result = new { result = new { value = new[] { "cdc_abcdefghijklmnopqrstuv_Array", "location", "untrusted');throw 1;//", "cdc_abcdefghijklmnopqrstuv_Array" } } };
+                        result = new { result = new { value = CdcNames } };
                     if (method == "Page.addScriptToEvaluateOnNewDocument")
                     {
                         Interlocked.Increment(ref ScriptRegistrations);
                         Sources.Add(root.GetProperty("params").GetProperty("source").GetString()!);
+                        result = new { identifier = "script-" + ScriptRegistrations };
                     }
+                    if (method == "Page.removeScriptToEvaluateOnNewDocument") Interlocked.Increment(ref ScriptRemovals);
                     if (method == "Page.navigate" && Scenario == "download") result = new { frameId = "main", isDownload = true };
                     if (method == "Page.navigate" && Scenario == "same-document") result = new { frameId = "main" };
                     if (method == "Page.navigate" && NavigationError is not null) result = new { frameId = "main", errorText = NavigationError };
                     await Send(new { id = root.GetProperty("id").GetInt64(), result });
+                    if (method == "Fixture.detachSession") await Send(new { method = "Target.detachedFromTarget", @params = new { sessionId = "session-page", targetId = "page" } });
+                    if (method == "Fixture.destroyTarget") await Send(new { method = "Target.targetDestroyed", @params = new { targetId = "page" } });
+                    if (method == "Target.closeTarget") await Send(new { method = "Target.targetDestroyed", @params = new { targetId = root.GetProperty("params").GetProperty("targetId").GetString() } });
                     if (method == "Page.navigate" && NavigationError is not null) continue;
                     if (method == "Page.navigate")
                     {
@@ -477,6 +489,7 @@ public sealed class NavigationContractTests
                             if (redirectedFrom is not null) parameters["redirectResponse"] = new { url = redirectedFrom };
                             await Send(new { method = "Network.requestWillBeSent", sessionId = "session-page", @params = parameters });
                         }
+                        if (Scenario == "standard") await DocumentRequest("current", "new-loader", root.GetProperty("params").GetProperty("url").GetString()!);
                         if (Scenario?.StartsWith("superseded-", StringComparison.Ordinal) == true)
                         {
                             Task CurrentRequest() => DocumentRequest("current", "new-loader", "http://fixture/page");
@@ -538,7 +551,7 @@ public sealed class NavigationContractTests
                         if (Scenario == "target-closed") { await Send(new { method = "Target.targetDestroyed", @params = new { targetId = "page" } }); continue; }
                         if (Scenario == "same-document") { await Send(new { method = "Page.navigatedWithinDocument", sessionId = "session-page", @params = new { frameId = "main", url = "http://fixture/page" } }); continue; }
                         var loader = OnlyOldLoader ? "old-loader" : "new-loader";
-                        var eventSession = Scenario == "wrong-session" ? "other-page" : "session-page";
+                        var eventSession = Scenario == "wrong-session" ? "other-page" : root.GetProperty("sessionId").GetString();
                         await Send(new { method = "Page.frameNavigated", sessionId = eventSession, @params = new { frame = new { id = "main", loaderId = loader, url = "http://fixture/page" } } });
                         if (Scenario is "pending-network" or "network-finished" or "network-failed")
                             await Send(new { method = "Network.requestWillBeSent", sessionId = eventSession, @params = new { requestId = "fetch-1" } });

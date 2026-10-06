@@ -6,17 +6,19 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length != 3)
+        if ((args.Length != 3 && args.Length != 4) || (args.Length == 4 && args[3] != "--profile"))
         {
-            Console.Error.WriteLine("Usage: UcFramework481.exe <chrome.exe> <chromedriver.exe> <URL>");
+            Console.Error.WriteLine("Usage: UcFramework481.exe <chrome.exe> <chromedriver.exe> <URL> [--profile]");
             return 2;
         }
         var browser = await Browser.StartAsync(new BrowserOptions
         {
-            ChromeBinaryPath = args[0], Driver = new DriverArtifactOptions { ExecutablePath = args[1] }
+            ChromeBinaryPath = args[0], Driver = new DriverArtifactOptions { ExecutablePath = args[1] },
+            UcProfile = args.Length == 4 ? new UcLaunchProfile { Language = "en-US" } : null
         });
         try
         {
+            if (browser.UcProfile != null) Console.WriteLine(browser.UcProfile.Id + "; language=" + browser.UcProfile.Language + "; patch=" + browser.UcProfile.PatchMode);
             var uc = browser.Uc;
             var result = await uc.OpenWithDisconnectAsync(new Uri(args[2]), TimeSpan.FromSeconds(1));
             Console.WriteLine(result.FinalUrl + "; " + browser.State);

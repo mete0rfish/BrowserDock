@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using BrowserDock.Hosting;
 using BrowserDock.WebDriver;
 using NUnit.Framework;
@@ -17,6 +18,56 @@ public sealed class CommandDeadlineTests
     private static TaskCompletionSource<bool> Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static Task<T> Bounded<T>(Task<T> work) => TaskCompatibility.WaitAsync(work, Watchdog);
     private static Task Bounded(Task work) => TaskCompatibility.WaitAsync(work, Watchdog);
+
+    [Test]
+    public async Task DriverCdcCleanupUsesDriverSessionAndOwnsOnlyItsPerWindowIdentifiers()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var calls = new List<string>(); var sequence = 0;
+        fixture.Executor.Cdp = command =>
+        {
+            Assert.That(command.SessionId!.ToString(), Is.EqualTo("fixture-session"));
+            var method = (string)command.Parameters!["cmd"]!;
+            var args = JsonSerializer.SerializeToElement(command.Parameters["params"]);
+            if (method == "Page.addScriptToEvaluateOnNewDocument")
+            {
+                calls.Add("add:" + args.GetProperty("source").GetString());
+                return new Response("fixture-session", new Dictionary<string, object> { ["identifier"] = "owned-" + ++sequence }, WebDriverResult.Success);
+            }
+            calls.Add("remove:" + args.GetProperty("identifier").GetString());
+            return new Response("fixture-session", new Dictionary<string, object>(), WebDriverResult.Success);
+        };
+        await fixture.Attachment.PrepareCdcCleanupAsync("window-a", null, CancellationToken.None);
+        Assert.That(fixture.Executor.CdpCommandsAdded, Is.Zero, "Disabled cleanup must not use the driver CDP bridge.");
+        await fixture.Attachment.PrepareCdcCleanupAsync("window-a", "cleanup-a", CancellationToken.None);
+        await fixture.Attachment.PrepareCdcCleanupAsync("window-a", "cleanup-a", CancellationToken.None);
+        await fixture.Attachment.PrepareCdcCleanupAsync("window-b", "cleanup-b", CancellationToken.None);
+        await fixture.Attachment.PrepareCdcCleanupAsync("window-a", "cleanup-new", CancellationToken.None);
+        Assert.That(calls, Is.EqualTo(new[] { "add:cleanup-a", "add:cleanup-b", "remove:owned-1", "add:cleanup-new" }));
+        Assert.That(fixture.Executor.CdpCommandsAdded, Is.EqualTo(1));
+    }
+
+    [TestCase("rejected"), TestCase("missing-id"), TestCase("canceled")]
+    public async Task UncertainDriverScriptRegistrationStopsItsAttachment(string failure)
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        using var canceled = new CancellationTokenSource();
+        fixture.Executor.Cdp = _ =>
+        {
+            if (failure == "canceled") { canceled.Cancel(); throw new OperationCanceledException(canceled.Token); }
+            return new Response("fixture-session", new Dictionary<string, object>(),
+                failure == "rejected" ? WebDriverResult.UnknownError : WebDriverResult.Success);
+        };
+        var error = Assert.CatchAsync(async () => await Bounded(fixture.Attachment.PrepareCdcCleanupAsync("window", "cleanup", canceled.Token)));
+        if (failure == "canceled") Assert.That(error, Is.InstanceOf<OperationCanceledException>());
+        else Assert.That(error, Is.InstanceOf<BrowserDockException>());
+        Assert.That(fixture.Executor.Disposals, Is.EqualTo(1));
+        await Bounded(fixture.Attachment.Process.WaitAsync(CancellationToken.None));
+        Assert.That(fixture.Attachment.Process.Alive, Is.False);
+        var sent = fixture.Attachment.Executor.Sent;
+        Assert.ThrowsAsync<BrowserDockException>(async () => await fixture.Attachment.PrepareCdcCleanupAsync("window", "cleanup", CancellationToken.None));
+        Assert.That(fixture.Attachment.Executor.Sent, Is.EqualTo(sent), "An uncertain mutation must never be retried against the same attachment.");
+    }
 
     [TestCase(false), TestCase(true)]
     public async Task QueuedDeadlinePreservesAttachmentAndGateOwnership(bool legacy)
@@ -570,12 +621,20 @@ public sealed class CommandDeadlineTests
         public Exception? DisposeFailure { get; set; }
         public Action? DisposeHook { get; set; }
         public Func<Task<string>> Title { get; set; } = () => Task.FromResult("fixture");
-        public bool TryAddCommand(string name, CommandInfo? info) => false;
+        public Func<Command, Response>? Cdp { get; set; }
+        public int CdpCommandsAdded { get; private set; }
+        public bool TryAddCommand(string name, CommandInfo? info)
+        {
+            if (name != "browserDockCdp") return false;
+            Assert.That(info, Is.InstanceOf<HttpCommandInfo>());
+            CdpCommandsAdded++; return true;
+        }
         public Response Execute(Command command)
         {
             if (command.Name == DriverCommand.NewSession)
                 return new Response("fixture-session", new Dictionary<string, object> { ["browserName"] = "chrome", ["browserVersion"] = "150.0.1.0", ["platformName"] = "fixture" }, WebDriverResult.Success);
             Interlocked.Increment(ref commands);
+            if (command.Name == "browserDockCdp") return Cdp!(command);
             return new Response(command.SessionId?.ToString(), Title().GetAwaiter().GetResult(), WebDriverResult.Success);
         }
         public Task<Response> ExecuteAsync(Command command) => Task.FromResult(Execute(command));

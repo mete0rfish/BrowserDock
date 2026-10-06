@@ -104,6 +104,8 @@ app.Map("/wd/{**path}", async context =>
     };
     await context.Response.WriteAsJsonAsync(response);
 });
+// Snapshot at the very first page script, before later evaluation can hide ordering bugs.
+app.MapGet("/uc-profile", () => Results.Content("<script>globalThis.__pageCdc=Object.getOwnPropertyNames(globalThis).filter(k=>/^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$/.test(k))</script><title>UC profile</title>", "text/html"));
 app.MapGet("/redirect", () => Results.Redirect("/page"));
 app.MapGet("/download", () => Results.File("fixture"u8.ToArray(), "application/octet-stream", "fixture.txt"));
 app.MapGet("/slow", async (HttpContext context) => { await Task.Delay(10000, context.RequestAborted); return Results.Content("<title>slow</title>", "text/html"); });

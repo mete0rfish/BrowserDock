@@ -57,7 +57,11 @@ public sealed record BrowserOptions
     public IReadOnlyList<string> ChromeArguments { get; init; } = [];
     public IReadOnlyList<string> AdditionalUrlSchemes { get; init; } = [];
     public IReadOnlyList<string> NewDocumentScripts { get; init; } = [];
-    public bool RemoveDiscoveredCdcProperties { get; init; }
+    private bool? cdcPropertyRemoval;
+    public bool RemoveDiscoveredCdcProperties { get => cdcPropertyRemoval ?? false; init => cdcPropertyRemoval = value; }
+    internal bool? CdcPropertyRemovalOverride => cdcPropertyRemoval;
+    /// <summary>Null preserves ordinary startup. Calling Browser.Uc never enables this profile implicitly.</summary>
+    public UcLaunchProfile? UcProfile { get; init; }
     public ILogger? Logger { get; init; }
     internal Func<string, CancellationToken, ValueTask>? StageHook { get; init; }
 }

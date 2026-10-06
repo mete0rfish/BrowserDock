@@ -4,7 +4,8 @@
 ValueTask; `BrowserDock.Legacy` has equivalent Task methods and mutable option
 classes captured before asynchronous work. Accessing the facade does not enable
 driver patching or a launch/script profile. Dispose the owning Browser for final
-cleanup; disposing a lease only invalidates that lease.
+cleanup; disposing a lease only invalidates that lease. A separate optional
+[UC launch profile](uc-launch-profile.md) configures startup and document scripts.
 
 ## Call contracts
 

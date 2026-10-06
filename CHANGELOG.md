@@ -4,6 +4,16 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ## Unreleased
 
+### Added
+
+- Optional, versioned UC launch/script profile in Core and Legacy (#30): immutable
+  resolved settings, language/CDC conflicts, explicit patch requirements, ordered
+  document scripts and redacted effective-policy information. Profile mode refreshes
+  CDC discovery at attachment/navigation boundaries and replaces changed script
+  registrations without accumulating duplicates. Driver-session cleanup also runs
+  after ChromeDriver's initializer so CDC properties are absent at the first page
+  script, without replaying caller scripts. Windows browser execution is unverified;
+  real binary recipes and upstream parity remain separate work.
 ### Changed
 
 - Temporarily quarantine the nested-frame reacquisition browser test tracked in

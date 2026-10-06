@@ -65,6 +65,7 @@ public sealed partial class Browser : IAsyncDisposable
     public BrowserState State => state;
     public long SessionGeneration => Interlocked.Read(ref generation);
     public long AttachmentEpoch => admission.Epoch;
+    public UcLaunchProfileInfo? UcProfile => UcProfileResolver.Describe(options);
     internal BrowserOptions EffectiveOptionsForTest => options;
     internal (string? Profile, Uri? Endpoint, string? SessionId, int? DriverPort, long Sent) TestSnapshot => (profile?.Path, endpoint, attachment?.SessionId, attachment?.Port, attachment?.Executor.Sent ?? 0);
     internal void InterruptCdpForTest() => cdp!.InterruptForTest();
@@ -117,7 +118,7 @@ public sealed partial class Browser : IAsyncDisposable
                 browser.chrome = new OwnedProcess(chromePath, new[] { "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", $"--user-data-dir={browser.profile.Path}", "--no-first-run", "--no-default-browser-check" }.Concat(effectiveOptions.ChromeArguments).Append("about:blank"), tree: true);
                 await browser.StageAsync("endpoint", token).ConfigureAwait(false);
                 using (var deadline = new Deadline(effectiveOptions.Timeouts.DevToolsEndpointDiscovery, token)) browser.endpoint = await BrowserHosting.DiscoverAsync(browser.profile, browser.chrome, deadline.Token).ConfigureAwait(false);
-                browser.cdp = new(browser.endpoint, effectiveOptions.NewDocumentScripts, effectiveOptions.RemoveDiscoveredCdcProperties);
+                browser.cdp = new(browser.endpoint, effectiveOptions.NewDocumentScripts, effectiveOptions.RemoveDiscoveredCdcProperties, effectiveOptions.UcProfile is not null);
                 using (var deadline = new Deadline(effectiveOptions.Timeouts.CdpConnect, token)) await browser.cdp.InitializeAsync(deadline.Token).ConfigureAwait(false);
                 await browser.ProbeAsync(token).ConfigureAwait(false);
                 browser.SetState(BrowserState.ChromeReady);
@@ -145,8 +146,10 @@ public sealed partial class Browser : IAsyncDisposable
             ChromeArguments = Array.AsReadOnly(options.ChromeArguments.ToArray()),
             AdditionalUrlSchemes = Array.AsReadOnly(options.AdditionalUrlSchemes.ToArray()),
             NewDocumentScripts = Array.AsReadOnly(options.NewDocumentScripts.ToArray()),
+            UcProfile = UcProfileResolver.Capture(options.UcProfile),
             Driver = options.Driver with { PatchStrategies = Array.AsReadOnly(options.Driver.PatchStrategies.ToArray()) }
         };
+        captured = UcProfileResolver.Resolve(captured);
         Validate(captured);
         return captured;
     }
@@ -262,6 +265,11 @@ public sealed partial class Browser : IAsyncDisposable
                 driver.SwitchTo().Window(found); return found;
             }, token).ConfigureAwait(false);
             lock (windows) windows[target.Key] = handle;
+            if (options.UcProfile is not null)
+            {
+                await cdp.PrepareControlledAsync(token).ConfigureAwait(false);
+                await attachment.PrepareCdcCleanupAsync(handle, cdp.DriverCdcCleanupScript, token).ConfigureAwait(false);
+            }
         }
         finally
         {
