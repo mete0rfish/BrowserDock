@@ -8,4 +8,4 @@ public enum DriverPatchMode { Disabled, ValidateOnly, BinaryCompatibility }
 public enum BrowserOwnership { Library }
 public enum NavigationOutcome { Completed, Download }
 public enum LocatorKind { Css, XPath, Id, Name, TagName, LinkText }
-public enum ErrorCategory { ConfigurationError, VersionMismatch, PatchMismatch, ChromeStartFailure, DevToolsEndpointFailure, ChromeExited, DriverProcessFailure, WebDriverSessionFailure, UnsupportedAttachedCommand, AmbiguousTarget, TargetClosed, TargetCrashed, StaleAttachment, AttachmentLost, StaleDomElement, OperationTimedOut, CleanupIncomplete, ProtocolError, ElementNotFound, ElementInteractionFailure }
+public enum ErrorCategory { ConfigurationError, VersionMismatch, PatchMismatch, ChromeStartFailure, DevToolsEndpointFailure, ChromeExited, DriverProcessFailure, WebDriverSessionFailure, UnsupportedAttachedCommand, AmbiguousTarget, TargetClosed, TargetCrashed, StaleAttachment, AttachmentLost, StaleDomElement, OperationTimedOut, CleanupIncomplete, ProtocolError, ElementNotFound, ElementInteractionFailure, ScriptExecutionFailure }

@@ -81,6 +81,12 @@ below remains an additional delay after navigation completion.
 - Use `SelectTargetAsync()` to reconcile a new window's CDP target and WebDriver handle before using it. `SwitchToWindowAsync()` accepts only reconciled handles.
 - `WebDriverLease.DisposeAsync()` invalidates that lease only. `Browser.DisposeAsync()` and `StopAsync()` also terminate owned Chrome.
 - Public APIs do not return Selenium objects. JavaScript inputs and results must be JSON-compatible; results containing DOM elements are rejected.
+- A WebDriver `javascript error` response throws `ScriptExecutionFailure` in Core
+  and Legacy, retaining the original exception, operation ID and diagnostics.
+  This response alone does not detach WebDriver or invalidate existing leases.
+  Scripts may change the page before throwing; no rollback or automatic replay
+  occurs. Inspect the resulting page before retrying. Transport failures, running
+  command timeouts and cancellation retain their bounded recovery behavior.
 - Do not share a lease across concurrent threads. Lifecycle operations are serialized, and disconnection waits for active commands only for a bounded time.
 - `ExecuteCdpAsync()` is an advanced API. Browser/Target commands use the browser connection; other commands use the selected page session. Direct tab/browser closure and script execution can have broader effects than the facade's state and URL policies.
 - `NetworkIdle` is a best-effort completion condition requiring 500 ms without tracked requests. Persistent requests may cause a navigation timeout.

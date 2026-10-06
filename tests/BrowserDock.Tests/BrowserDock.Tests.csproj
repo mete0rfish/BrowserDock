@@ -12,6 +12,8 @@
     <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />
     <Compile Include="../Shared/ElementClickTests.cs" Link="ElementClickTests.cs" />
     <Compile Include="../Shared/ElementInputTests.cs" Link="ElementInputTests.cs" />
+    <Compile Include="../Shared/ScriptErrorTests.cs" Link="ScriptErrorTests.cs" />
+    <Compile Include="../Shared/ScriptErrorBrowserTests.cs" Link="ScriptErrorBrowserTests.cs" />
     <Compile Include="../Shared/ElementInputBrowserTests.cs" Link="ElementInputBrowserTests.cs" />
     <Compile Include="../Shared/ElementClickBrowserTests.cs" Link="ElementClickBrowserTests.cs" />
     <Compile Include="../Shared/ElementWaitBrowserTests.cs" Link="ElementWaitBrowserTests.cs" />

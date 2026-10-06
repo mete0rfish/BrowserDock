@@ -48,6 +48,11 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Report WebDriver JavaScript errors as `ScriptExecutionFailure` in Core and
+  Legacy without invalidating a healthy attachment. Preserve the original error
+  and command diagnostics; partially completed scripts/input are never replayed.
+  The new category is appended, preserving existing enum values.
+
 - Revalidate Chrome/CDP and the controlled target after UC disconnected holds;
   preserve caller cancellation tokens for every UC method, including queued and
   already-canceled calls (#29).
