@@ -80,6 +80,8 @@ await browser.WaitForAbsentAsync(Locator.Css(".loading"), null, cancellationToke
   selector or failed attachment is propagated. DOM staleness during observation
   is retried by locating again, including after document replacement in the same
   target. A changed attachment or disposed lease fails with `StaleAttachment`.
+  This also applies when the change happens during a polling delay that ends at
+  the deadline; explicit caller/browser-lifetime cancellation still takes priority.
 - Waits release the command gate between observations. They perform no click,
   typing, submission or navigation. Returned references can become stale after
   the observation; reads on an ordinary reference still report `StaleDomElement`

@@ -72,11 +72,18 @@ public sealed partial class Browser
                 // The shared deadline bounds this delay. Clipping a TimeSpan to
                 // its remaining fraction of a millisecond can round down to zero
                 // in Task.Delay and dispatch extra polls just before expiry.
+                await StageAsync("element-wait-poll", deadline.Token).ConfigureAwait(false);
                 await Task.Delay(captured.PollInterval, deadline.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException original)
         {
+            // A polling deadline can expire after the lease/session was invalidated.
+            // Preserve explicit cancellation first. Running-command timeouts are
+            // already typed by CommandAsync and must retain their original reason.
+            if (!caller.IsCancellationRequested && !lifetime.IsCancellationRequested &&
+                (!valid() || AttachmentEpoch != epoch || State != BrowserState.WebDriverAttached))
+                throw new StaleAttachmentException { OperationId = id, Diagnostic = Health };
             // Polling uses a linked token; expose the original public caller
             // token and retain command recovery diagnostics when present.
             Exception error = caller.IsCancellationRequested

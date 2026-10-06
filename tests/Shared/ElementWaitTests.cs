@@ -336,6 +336,62 @@ public sealed class ElementWaitTests
         Assert.That(fixture.Core.Executor.Disposals, Is.Zero);
     }
 
+    [TestCase(false, "dispose"), TestCase(true, "dispose")]
+    [TestCase(false, "disconnect"), TestCase(true, "disconnect")]
+    [TestCase(false, "replace"), TestCase(true, "replace")]
+    public async Task PollingDeadlineReportsInvalidatedAttachment(bool legacy, string change)
+    {
+        var polling = Signal(); var resume = Signal();
+        await using var fixture = await Fixture.StartAsync(async (stage, token) =>
+        {
+            if (stage == "element-wait-poll") { polling.TrySetResult(true); await TaskCompatibility.WaitAsync(resume.Task, token); }
+        });
+        var replacement = change == "replace" ? await fixture.Core.AddAttachmentAsync() : default;
+        fixture.OnCommand = command => command.Name == DriverCommand.FindElement ? throw new NoSuchElementException() : Reply(null);
+        var pending = fixture.Wait("exists", legacy, true, WaitOptions with
+        { Timeout = TimeSpan.FromSeconds(2), PollInterval = TimeSpan.FromSeconds(10) });
+        try
+        {
+            await Bounded(polling.Task);
+            if (change == "dispose") await fixture.Core.Lease.DisposeAsync();
+            else if (change == "disconnect") await Bounded(fixture.Core.Browser.DisconnectWebDriverAsync().AsTask());
+            else fixture.Core.Browser.ReplaceAttachmentForTest(replacement.Attachment!);
+            var sent = fixture.Commands.Count;
+            resume.TrySetResult(true);
+            var error = await Catch(pending);
+            Assert.That(Category(error), Is.EqualTo(ErrorCategory.StaleAttachment));
+            Assert.That(CoreError(error).OperationId, Is.Not.EqualTo(Guid.Empty));
+            Assert.That(CoreError(error).Diagnostic, Is.Not.Null);
+            Assert.That(fixture.Commands.Count, Is.EqualTo(sent), "Invalidation must not trigger another remote observation.");
+            Assert.That(fixture.Core.Executor.Disposals, Is.EqualTo(change == "disconnect" ? 1 : 0));
+            if (change == "replace") Assert.That(replacement.Executor!.Commands, Is.Zero);
+        }
+        finally { resume.TrySetResult(true); }
+    }
+
+    [TestCase(false, false), TestCase(true, false), TestCase(false, true), TestCase(true, true)]
+    public async Task PollingCancellationTakesPrecedenceOverDisposedLease(bool legacy, bool stop)
+    {
+        var polling = Signal(); var resume = Signal();
+        await using var fixture = await Fixture.StartAsync(async (stage, token) =>
+        {
+            if (stage == "element-wait-poll") { polling.TrySetResult(true); await TaskCompatibility.WaitAsync(resume.Task, token); }
+        });
+        fixture.OnCommand = command => command.Name == DriverCommand.FindElement ? throw new NoSuchElementException() : Reply(null);
+        using var caller = new CancellationTokenSource();
+        var pending = fixture.Wait("exists", legacy, true, token: caller.Token);
+        try
+        {
+            await Bounded(polling.Task);
+            await fixture.Core.Lease.DisposeAsync();
+            if (stop) await Bounded(fixture.Core.Browser.StopAsync().AsTask()); else caller.Cancel();
+            var error = await Catch(pending);
+            Assert.That(error, Is.InstanceOf<OperationCanceledException>());
+            if (!stop) Assert.That(((OperationCanceledException)error).CancellationToken, Is.EqualTo(caller.Token));
+        }
+        finally { resume.TrySetResult(true); }
+    }
+
     [TestCase(false), TestCase(true)]
     public async Task InFlightWaitTimeoutRetainsDeadlineReasonDuringCleanup(bool legacy)
     {
