@@ -69,9 +69,10 @@ public sealed partial class Browser
                 if (observation.Satisfied) return observation.Element;
                 // Release the command gate between observations so that other
                 // commands can change the DOM and lifecycle operations can proceed.
-                var remaining = captured.Timeout - clock.Elapsed;
-                if (remaining <= TimeSpan.Zero) throw new OperationCanceledException(deadline.Token);
-                await Task.Delay(remaining < captured.PollInterval ? remaining : captured.PollInterval, deadline.Token).ConfigureAwait(false);
+                // The shared deadline bounds this delay. Clipping a TimeSpan to
+                // its remaining fraction of a millisecond can round down to zero
+                // in Task.Delay and dispatch extra polls just before expiry.
+                await Task.Delay(captured.PollInterval, deadline.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException original)
