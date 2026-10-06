@@ -9,6 +9,62 @@ namespace BrowserDock.Tests;
 [TestFixture]
 public sealed class NavigationContractTests
 {
+    [TestCase("superseded-before-current"), TestCase("superseded-after-current"), TestCase("superseded-same-url")]
+    [TestCase("superseded-lifecycle"), TestCase("superseded-nonredirect")]
+    public async Task StandardNavigationIgnoresAnEarlierUncommittedRedirect(string scenario)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var result = await controller.NavigateAsync(new Uri("http://fixture/page"), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = "http://fixture/page" }, null, token); }, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Completed));
+        Assert.That(result.Redirects, Is.Empty, "An unrelated redirect must not enter the result.");
+        Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+        Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task StandardNavigationStillReportsItsOwnFailureAfterAnUnrelatedAbort()
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = "superseded-current-failed";
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var error = Assert.ThrowsAsync<BrowserDockException>(async () => await controller.NavigateAsync(new Uri("http://fixture/page"), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = "http://fixture/page" }, null, token); }, deadline.Token))!;
+        Assert.That(error.Data["Navigation.DocumentRequestId"], Is.EqualTo("current"));
+        Assert.That(error.Data["Navigation.CdpErrorText"], Is.EqualTo("net::ERR_CONNECTION_RESET"));
+        Assert.That(deadline.IsCancellationRequested, Is.False);
+    }
+
+    [TestCase("correlated-redirect"), TestCase("correlated-download")]
+    public async Task StandardNavigationKeepsItsOwnRedirectChain(string scenario)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var result = await controller.NavigateAsync(new Uri("http://fixture/page#anchor"), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = "http://fixture/page#anchor" }, null, token); }, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(scenario == "correlated-download" ? NavigationOutcome.Download : NavigationOutcome.Completed));
+        Assert.That(result.Redirects, Is.EqualTo(new[] { "http://fixture/page" }));
+    }
+
+    [TestCase("http://fixture/page#anchor", "same-document")]
+    [TestCase("about:blank", null), TestCase("data:text/html,hello", null)]
+    public async Task StandardNavigationWithoutANetworkRequestCanStillComplete(string destination, string? scenario)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var result = await controller.NavigateAsync(new Uri(destination), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = destination }, null, token); }, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Completed));
+    }
+
     [TestCase("document-failed", "net::ERR_CONNECTION_RESET")]
     [TestCase("document-aborted", "net::ERR_ABORTED")]
     [TestCase("redirect-failed", "net::ERR_CONNECTION_RESET")]
@@ -414,6 +470,47 @@ public sealed class NavigationContractTests
                     if (method == "Page.navigate" && NavigationError is not null) continue;
                     if (method == "Page.navigate")
                     {
+                        async Task DocumentRequest(string requestId, string loaderId, string requestUrl, string? redirectedFrom = null)
+                        {
+                            var parameters = new Dictionary<string, object> { ["requestId"] = requestId, ["loaderId"] = loaderId,
+                                ["frameId"] = "main", ["type"] = "Document", ["request"] = new { url = requestUrl } };
+                            if (redirectedFrom is not null) parameters["redirectResponse"] = new { url = redirectedFrom };
+                            await Send(new { method = "Network.requestWillBeSent", sessionId = "session-page", @params = parameters });
+                        }
+                        if (Scenario?.StartsWith("superseded-", StringComparison.Ordinal) == true)
+                        {
+                            Task CurrentRequest() => DocumentRequest("current", "new-loader", "http://fixture/page");
+                            if (Scenario == "superseded-after-current") await CurrentRequest();
+                            await DocumentRequest("previous", "uncommitted-loader",
+                                Scenario == "superseded-same-url" ? "http://fixture/page" : "http://fixture/Page",
+                                Scenario == "superseded-nonredirect" ? null : "http://fixture/previous-start");
+                            if (Scenario == "superseded-lifecycle")
+                            {
+                                await Send(new { method = "Page.frameNavigated", sessionId = "session-page", @params = new { frame = new { id = "main", loaderId = "uncommitted-loader" } } });
+                                await Send(new { method = "Page.lifecycleEvent", sessionId = "session-page", @params = new { frameId = "main", loaderId = "uncommitted-loader", name = "load" } });
+                            }
+                            await Send(new { method = "Network.loadingFailed", sessionId = "session-page", @params = new
+                            { requestId = "previous", type = "Document", errorText = "net::ERR_ABORTED", canceled = true } });
+                            if (Scenario != "superseded-after-current") await CurrentRequest();
+                            if (Scenario == "superseded-current-failed")
+                            {
+                                await Send(new { method = "Network.loadingFailed", sessionId = "session-page", @params = new { requestId = "current", type = "Document", errorText = "net::ERR_CONNECTION_RESET" } });
+                                continue;
+                            }
+                        }
+                        if (Scenario is "correlated-redirect" or "correlated-download")
+                        {
+                            // Canonical host/default port and a missing fragment must still match.
+                            await DocumentRequest("current", "new-loader", "http://FIXTURE:80/page");
+                            await DocumentRequest("current", "new-loader", "http://fixture/final", "http://fixture/page");
+                            if (Scenario == "correlated-download")
+                            {
+                                await Send(new { method = "Network.responseReceived", sessionId = "session-page", @params = new { requestId = "current", type = "Document" } });
+                                await Send(new { method = "Network.loadingFailed", sessionId = "session-page", @params = new { requestId = "current", type = "Document", errorText = "net::ERR_ABORTED" } });
+                                await Send(new { method = "Browser.downloadWillBegin", @params = new { frameId = "main", guid = "download" } });
+                                continue;
+                            }
+                        }
                         if (Scenario is "session-detached" or "other-session-detached" or "inspector-detached")
                         {
                             if (Scenario == "inspector-detached") await Send(new { method = "Inspector.detached", sessionId = "session-page", @params = new { reason = "fixture-detach" } });
@@ -425,8 +522,8 @@ public sealed class NavigationContractTests
                             var injectedSession = Scenario == "other-session-failed" ? "other-session" : "session-page";
                             var injectedFrame = Scenario == "other-frame-failed" ? "child" : "main";
                             var injectedLoader = Scenario == "old-loader-failed" ? "old-loader" : "new-loader";
-                            await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document" } });
-                            if (Scenario == "redirect-failed") await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document", redirectResponse = new { url = "http://fixture/redirect" } } });
+                            await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document", request = new { url = root.GetProperty("params").GetProperty("url").GetString() } } });
+                            if (Scenario == "redirect-failed") await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document", request = new { url = "http://fixture/final" }, redirectResponse = new { url = "http://fixture/page" } } });
                             if (Scenario.StartsWith("response-", StringComparison.Ordinal)) await Send(new { method = "Network.responseReceived", sessionId = injectedSession, @params = new { requestId = "document", type = "Document" } });
                             await Send(new { method = "Network.loadingFailed", sessionId = injectedSession, @params = new { requestId = "document", type = "Document", errorText = Scenario.Contains("aborted", StringComparison.Ordinal) ? "net::ERR_ABORTED" : "net::ERR_CONNECTION_RESET", canceled = true } });
                             FailureSent.TrySetResult(true);

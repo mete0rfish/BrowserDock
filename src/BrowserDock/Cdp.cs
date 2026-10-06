@@ -308,6 +308,9 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         string? loader = null;
         string? documentRequest = null, documentFailure = null;
         var documentResponse = false;
+        // W3C navigation returns no loader ID. Do not let a previous, still
+        // provisional navigation claim this operation through its late events.
+        var requireDocumentRequest = standard is not null && url.Scheme is "http" or "https";
         var committed = false; var dom = false; var loaded = false;
         try
         {
@@ -355,12 +358,14 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                     if (item.Method == "Page.frameNavigated")
                     {
                         var f = p.GetProperty("frame");
-                        if (f.GetProperty("id").GetString() == frameId && f.GetProperty("loaderId").GetString() != oldLoader &&
+                        if ((!requireDocumentRequest || documentRequest is not null) &&
+                            f.GetProperty("id").GetString() == frameId && f.GetProperty("loaderId").GetString() != oldLoader &&
                             (loader is null || f.GetProperty("loaderId").GetString() == loader))
                         { loader ??= f.GetProperty("loaderId").GetString(); committed = true; }
                     }
                     if (item.Method == "Page.navigatedWithinDocument" && p.GetProperty("frameId").GetString() == frameId) { committed = dom = loaded = true; }
-                    if (item.Method == "Page.lifecycleEvent" && p.GetProperty("frameId").GetString() == frameId)
+                    if (item.Method == "Page.lifecycleEvent" && p.GetProperty("frameId").GetString() == frameId &&
+                        (!requireDocumentRequest || documentRequest is not null))
                     {
                         var eventLoader = p.GetProperty("loaderId").GetString();
                         if (eventLoader != oldLoader) loader ??= eventLoader;
@@ -376,13 +381,19 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                         var requestId = p.GetProperty("requestId").GetString()!;
                         outstanding.Add(requestId); lastActivity = DateTimeOffset.UtcNow;
                         if (BoundedDiagnosticTrace.Field(p, "frameId") == frameId && BoundedDiagnosticTrace.Field(p, "type") == "Document" &&
-                            BoundedDiagnosticTrace.Field(p, "loaderId") is { } requestLoader && requestLoader != oldLoader &&
-                            (loader is null || loader == requestLoader))
+                            BoundedDiagnosticTrace.Field(p, "loaderId") is { } requestLoader && requestLoader != oldLoader)
                         {
-                            loader ??= requestLoader;
-                            documentRequest = requestId; documentResponse = false; documentFailure = null;
+                            var redirected = p.TryGetProperty("redirectResponse", out var redirect);
+                            var first = documentRequest is null && (standard is null
+                                ? loader is null || loader == requestLoader
+                                : !redirected && p.TryGetProperty("request", out var request) && MatchesNavigationRequest(url, request));
+                            if (first || (documentRequest == requestId && loader == requestLoader))
+                            {
+                                loader = requestLoader;
+                                documentRequest = requestId; documentResponse = false; documentFailure = null;
+                                if (redirected) redirects.Add(redirect.GetProperty("url").GetString()!);
+                            }
                         }
-                        if (p.TryGetProperty("frameId", out var rf) && rf.GetString() == frameId && p.TryGetProperty("type", out var type) && type.GetString() == "Document" && p.TryGetProperty("redirectResponse", out var redirect)) redirects.Add(redirect.GetProperty("url").GetString()!);
                     }
                     if (item.Method == "Network.responseReceived" && documentRequest is not null && BoundedDiagnosticTrace.Field(p, "requestId") == documentRequest)
                         documentResponse = true;
@@ -443,6 +454,15 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
             throw;
         }
         finally { if (observing) connection.Event -= Observe; }
+    }
+    private static bool MatchesNavigationRequest(Uri destination, JsonElement request)
+    {
+        if (!Uri.TryCreate(BoundedDiagnosticTrace.Field(request, "url"), UriKind.Absolute, out var observed)) return false;
+        // Network requests omit fragments and credentials. Keep path/query case
+        // significant while normalizing host names and default ports via Uri.
+        return destination.Scheme == observed.Scheme && destination.Port == observed.Port &&
+            string.Equals(destination.IdnHost, observed.IdnHost, StringComparison.OrdinalIgnoreCase) &&
+            destination.GetComponents(UriComponents.PathAndQuery, UriFormat.UriEscaped) == observed.GetComponents(UriComponents.PathAndQuery, UriFormat.UriEscaped);
     }
     public async ValueTask DisposeAsync() { connection.Event -= OnEvent; await connection.DisposeAsync().ConfigureAwait(false); }
 }

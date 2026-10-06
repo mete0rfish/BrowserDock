@@ -10,6 +10,14 @@ removed cases or the quarantined nested-frame case.
   request ID. Fail with `ProtocolError` and the original Chrome error when that
   request fails. Other sessions, subframes, subresources and the previous loader
   cannot trigger this failure.
+- Standard navigation has no returned loader ID. Identify its initial Document
+  request by the requested URL and absence of `redirectResponse`, then follow
+  that request ID and loader through server redirects. Normalize host/default
+  port, omit fragments/credentials for matching and preserve path/query case.
+  An earlier provisional navigation's redirect must neither select this operation's
+  loader nor enter its redirect chain. For HTTP(S), ignore commit/load events until
+  the current request is identified; same-document and non-HTTP navigation retain
+  their separate completion paths.
 - Chrome also sends `net::ERR_ABORTED` for successful downloads. When the matching
   request has received a response, retain the existing navigation budget for
   `Browser.downloadWillBegin`. Do not add a short grace timer or infer a download
@@ -87,3 +95,32 @@ actual trigger and profile lock owner, and compare the required baseline/candida
 fixtures. Restore removed coverage only with that evidence. For the nested-frame
 case, #41 requires three consecutive full normal candidate runs including the case
 on both Core runtimes. Windows 11 desktop acceptance remains separate.
+
+## Review regression: overlapping Standard requests
+
+The review of `dbb3b3f` identified an earlier, uncommitted navigation being mistaken
+for a new Standard navigation. Three added protocol cases initially failed: two
+returned the previous request's `net::ERR_ABORTED`; the third completed but included
+the previous request's redirect in the result. Matching only the last committed
+loader was insufficient because a provisional request has another loader ID.
+
+The correction associates the initial request and follows only its redirect chain.
+Eleven new cases cover the previous redirect before/after the current request,
+a previous redirect to the same URL, prior lifecycle events, a different initial
+URL with case-sensitive path, failure of the current request, legitimate redirect
+completion/download, fragment/default-port normalization and same-document/
+non-HTTP completion. No arbitrary delay or automatic retry was added.
+
+In a real Linux Chromium/ChromeDriver 154 harness, a separate CDP client initiated
+a slow redirected navigation before the Standard delegate issued the requested
+WebDriver navigation. On `dbb3b3f`, BrowserDock returned `net::ERR_ABORTED` for the
+older request even though the requested page loaded. With the correction, the same
+controlled overlap completed successfully (about 114 ms). Normal navigation,
+direct download, redirected download, actual request abort and observer detach
+also retained their expected outcomes. This does not identify the original
+Windows CI trigger.
+
+A separate immediate JavaScript `location.replace` probe timed out on both baseline
+main `0f79de8` and the pre-correction PR head `dbb3b3f`, although the replacement page
+loaded. That existing client-side redirect limitation is outside this server-request
+correlation fix and remains an investigation item.
