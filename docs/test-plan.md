@@ -109,9 +109,9 @@ The current runner includes the subsequently added Legacy net8 target:
 
 | Layer | Environment / TFM | When |
 |---|---|---|
-| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
-| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Add `ci:run` to the PR; standalone manual dispatch |
-| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Add `ci:run` to the PR; standalone manual dispatch |
+| Common regressions | Ubuntu/Windows CI, Core and Legacy net8.0/net10.0 | Add `ci:required` or `ci:run` to the PR |
+| Framework common/consumer | Actual Framework 4.8.1, C# 7.3/x64, Windows MSBuild | Add `ci:required` or `ci:run` to the PR |
+| Hosted browser regressions | GitHub `windows-2025`, pinned CfT; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Add `ci:browser` or `ci:run` to the PR |
 | First browser smoke | Interactive Windows 11 x64, CfT Stable, Core net10.0 | First |
 | Full browser matrix | Same environment; Core net8.0/net10.0, Legacy net481/net8.0/net10.0 | Regular regression/release |
 | Browser-version matrix | Those five combinations × CfT Stable/Stable-1 | Release |
@@ -180,12 +180,12 @@ skipped jobs named `Not requested - ...`, never the required names, because GitH
 counts skipped checks as passing. They do not run tests or cancel a running
 hosted browser job. Inspect the actual labeled run when evaluating CI results.
 
-Standalone branch checks still use **Actions → Run workflow** (`workflow_dispatch`).
-GitHub requires the workflow file on the default branch to show that button.
-Checks from these manually dispatched jobs do not satisfy PR required checks,
-even on the same head SHA; see [GitHub's required-check troubleshooting guide](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated).
-Use the PR label for merge validation. Windows 11 acceptance and package/release
-remain dispatch-only and are not started by the label.
+All workflows require a label-added event; there is no standalone manual-dispatch
+path. Hosted stress uses `ci:browser:stress`, quarantine uses `ci:quarantined`.
+Windows 11 and package/release jobs use dedicated labels on an already merged
+same-repository PR targeting the default branch. They preserve environment
+protections and check out that PR's merge commit. See [the full label guide](ci.md)
+for labels, runner variables, release evidence and actual-TRX audit rules.
 
 #### GitHub-hosted browser regressions
 
@@ -223,10 +223,8 @@ before the frame/reconnect assertions. It exhausted the 60-second budget in
 `navigation-events`, with no accepted commit/load event. The trigger is still
 unconfirmed; quarantine is not a product fix or proof of a faulty test.
 
-After the workflow is present on the default branch, use **Actions → Windows
-quarantined browser tests → Run workflow**, select the candidate branch, and run
-it explicitly. This workflow has only `workflow_dispatch`; `ci:run` does not start
-it. It uses the same pinned Chrome/driver pair and a separate `quarantined-browser`
+Add **`ci:quarantined`** to the candidate PR to request this workflow. Neither
+`ci:run` nor `ci:required` starts it. It uses the same pinned Chrome/driver pair and a separate `quarantined-browser`
 check/concurrency group. Failures are not ignored or automatically retried.
 Download `windows-quarantined-browser-<run-id>-<attempt>` for TRX and fixture metadata.
 

@@ -7,8 +7,12 @@ from urllib.request import Request, urlopen
 def validate(run, repository, commit):
     checks = {
         "successful completed run": run.get("status") == "completed" and run.get("conclusion") == "success",
-        "same commit": run.get("head_sha") == commit,
-        "manual Windows workflow": run.get("event") == "workflow_dispatch" and run.get("path") == ".github/workflows/windows-browser.yml",
+        # pull_request_target head_sha identifies the trusted base workflow, not
+        # the explicit merge commit checked out for this acceptance run. The
+        # trusted workflow's run name binds the requested commit and stress label;
+        # publish separately verifies fixture.Commit and every required TRX.
+        "same requested commit and stress label": run.get("display_title") == f"Windows 11 acceptance {commit} ci:windows11:stress",
+        "label-triggered trusted Windows workflow": run.get("event") == "pull_request_target" and run.get("path") == ".github/workflows/windows-browser.yml",
         "same repository": (run.get("head_repository") or {}).get("full_name") == repository,
     }
     for description, passed in checks.items():
@@ -28,10 +32,13 @@ def main():
     )
     with urlopen(request, timeout=30) as response:
         run = json.load(response)
-    validate(run, repository, os.environ["GITHUB_SHA"])
+    commit = os.environ["RELEASE_COMMIT"]
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SystemExit("A merged release commit is required")
+    validate(run, repository, commit)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"artifact=windows-browser-{run_id}-{run['run_attempt']}\n")
-    print(f"Verified Windows acceptance run {run_id} for {run['head_sha']}")
+    print(f"Verified Windows acceptance run {run_id} for {commit}")
 
 
 if __name__ == "__main__":

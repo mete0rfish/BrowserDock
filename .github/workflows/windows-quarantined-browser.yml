@@ -1,10 +1,12 @@
 name: Windows quarantined browser tests
 on:
-  workflow_dispatch:
+  pull_request:
+    types: [labeled]
 permissions:
   contents: read
 jobs:
   quarantined-browser:
+    if: github.event.label.name == 'ci:quarantined'
     # Separate check and concurrency group: this diagnostic run cannot replace
     # or cancel the normal browser gate. Failures remain visible; no retries.
     concurrency:

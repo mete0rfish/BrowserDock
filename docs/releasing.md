@@ -69,12 +69,16 @@ public artifacts contain no local sensitive content or unwanted embedded sources
 
 1. Update CHANGELOG, support.md and README and the usage guide to describe the actual tested matrix.
    Bump only `build/Version.props` and any user-facing installation examples.
-2. Commit the final source and record its SHA. Run hosted Common contracts for that commit.
-3. Run Windows 11 browser acceptance on that exact commit, with `stress=true` and compatible
-   Chrome/driver. Inspect fixture metadata, all five TRX files, lifecycle/cleanup results
+2. Request PR checks using `ci:required`, then merge the approved release PR into
+   the default branch and record its merge SHA. All following labels go on that
+   same merged, same-repository PR; acceptance/package workflows explicitly check
+   out its merge SHA. The package job repeats common tests on that exact commit.
+3. Configure `BROWSERDOCK_CHROME` and `BROWSERDOCK_DRIVER` on the `windows-browser`
+   environment/repository, then add `ci:windows11:stress` to the merged PR to run
+   Windows 11 acceptance on that exact commit. Inspect fixture metadata, all five TRX files, lifecycle/cleanup results
    and known exclusions. The privileged symlink test and Python SeleniumBase comparison
    are separate runs; the release workflow does not claim to cover them.
-4. Run Package candidate and approved release with `publish=false`. It tests common
+4. Add `ci:package` to request Package candidate and approved release without publishing. It tests common
    runtimes on Windows, packs both packages and symbols, checks package contents, and
    compiles/loads .NET 8/10 and classic C# 7.3 consumers against those packages. The no-argument
    consumer smoke test checks loading, not real browser behavior.
@@ -85,8 +89,8 @@ public artifacts contain no local sensitive content or unwanted embedded sources
    for initial package ownership and trust policy setup.
 6. Only after all preceding settings and checks are ready, set repository variable
    `PUBLIC_RELEASE_ENABLED=true`. This is an explicit administrative enablement switch.
-7. Run the release workflow on the final commit with `publish=true` and the successful
-   Windows run ID. Review that run's candidate artifact before approving its `release`
+7. Set repository/environment variable `WINDOWS_ACCEPTANCE_RUN_ID` to the successful
+   Windows 11 stress run ID, then add `release:publish` to the same merged PR. Review that run's candidate artifact before approving its `release`
    environment. The publish job validates the Windows workflow identity, same commit,
    latest run attempt, clean stress fixture and required passing test classes. It validates
    release package metadata, obtains an OIDC credential and pushes the **same artifact
@@ -98,4 +102,6 @@ public artifacts contain no local sensitive content or unwanted embedded sources
 
 Source Link resolution, expanded browser compatibility, separate SeleniumBase comparisons,
 repository settings and account ownership remain review items; the automation must not be
-described as evidence that those checks passed. No release is triggered by a push or PR.
+described as evidence that those checks passed. A push or PR creation never triggers
+a release. The explicit post-merge `release:publish` label and existing release
+environment/administrative gates are required. See [CI label policy](ci.md).

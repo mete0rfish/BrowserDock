@@ -16,6 +16,11 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
   real binary recipes and upstream parity remain separate work.
 ### Changed
 
+- Require an explicit PR label for every CI workflow, including dedicated browser,
+  stress, quarantine and post-merge acceptance/package/release labels. Audit actual
+  common-test TRX files and require executed UC browser fixtures in both browser
+  runs and release evidence; discovered-only fixtures cannot satisfy the gate.
+
 - Temporarily quarantine the nested-frame reacquisition browser test tracked in
   #41. Preserve its assertions in a separate manually dispatched Windows suite;
   normal/stress runs exclude it and report the coverage gap. This is not a fix

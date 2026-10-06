@@ -58,15 +58,15 @@ try {
         $env:BROWSERDOCK_REFERENCE_RESULTS = Join-Path (Resolve-Path $Results).Path "reference-$framework"
         & dotnet test tests/BrowserDock.Tests/BrowserDock.Tests.csproj -f $framework --no-build --no-restore --filter $filter --logger "trx;LogFileName=$framework.trx" --results-directory $Results
         if ($LASTEXITCODE -ne 0) { throw "Tests failed for $framework. Review TRX and fixture metadata." }
-        $requiredClasses = if ($QuarantinedOnly) { @('BrowserDock.Tests.WindowsTests') } else { @('BrowserDock.Tests.WindowsTests','BrowserDock.Tests.ReferenceTests','BrowserDock.Tests.AttachmentFailureTests') }
-        & ./scripts/assert-test-results.ps1 -Path (Join-Path $Results "$framework.trx") -RequiredClasses $requiredClasses
+        $suite = if ($QuarantinedOnly) { 'Quarantined' } else { 'Browser' }
+        & ./scripts/assert-suite-results.ps1 -Path (Join-Path $Results "$framework.trx") -Suite $suite -Project Core
     }
     # The quarantined case exists only in Core. Do not report empty Legacy runs as passes.
     if (-not $QuarantinedOnly) {
         foreach ($framework in @("net481", "net8.0", "net10.0")) {
             & dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f $framework --no-build --no-restore --filter $filter --logger "trx;LogFileName=legacy-$framework.trx" --results-directory $Results
             if ($LASTEXITCODE -ne 0) { throw "Legacy tests failed for $framework. Review TRX and fixture metadata." }
-            & ./scripts/assert-test-results.ps1 -Path (Join-Path $Results "legacy-$framework.trx") -RequiredClasses 'BrowserDock.FrameworkTests.WindowsLegacyTests'
+            & ./scripts/assert-suite-results.ps1 -Path (Join-Path $Results "legacy-$framework.trx") -Suite Browser -Project Legacy
         }
     }
     Write-Host 'All selected tests executed and passed. Reference Python comparisons and real patch recipes require their separate runs.'

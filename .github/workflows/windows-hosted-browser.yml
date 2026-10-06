@@ -2,18 +2,12 @@ name: Windows hosted browser tests
 on:
   pull_request:
     types: [labeled]
-  workflow_dispatch:
-    inputs:
-      stress:
-        description: Include 100 cycles and 20 concurrent browsers
-        default: false
-        type: boolean
 permissions:
   contents: read
 jobs:
   browser:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci:run'
-    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Not requested - browser' || 'browser' }}
+    if: contains(fromJSON('["ci:run","ci:browser","ci:browser:stress"]'), github.event.label.name)
+    name: ${{ !contains(fromJSON('["ci:run","ci:browser","ci:browser:stress"]'), github.event.label.name) && 'Not requested - browser' || 'browser' }}
     # Keep concurrency on the job so a skipped unrelated label cannot cancel a run.
     concurrency:
       group: hosted-browser-${{ github.ref }}
@@ -40,7 +34,7 @@ jobs:
           "BROWSERDOCK_DRIVER=$($fixture.Driver)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Run common and real browser tests on Windows Server
         env:
-          FIXTURE_STRESS: ${{ inputs.stress || false }}
+          FIXTURE_STRESS: ${{ github.event.label.name == 'ci:browser:stress' }}
         run: |
           ./scripts/test-windows.ps1 -Chrome $env:BROWSERDOCK_CHROME -Driver $env:BROWSERDOCK_DRIVER -Stress:($env:FIXTURE_STRESS -eq 'true') -FixtureKind GitHubHosted -Results .artifacts/hosted-browser
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -2,12 +2,11 @@ name: Common contracts
 on:
   pull_request:
     types: [labeled]
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   common:
-    if: github.event_name == 'workflow_dispatch' || (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
+    if: (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
     # Skipped jobs count as success. Other labels must not emit required check names.
     name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:required' && 'Not requested - common' || 'common' }} (${{ matrix.os }}, ${{ matrix.framework }})
     runs-on: ${{ matrix.os }}
@@ -27,8 +26,21 @@ jobs:
             10.0.x
       - run: dotnet restore BrowserDock.slnx
       - run: dotnet build BrowserDock.slnx --no-restore -m:1
-      - run: dotnet test tests/BrowserDock.Tests/BrowserDock.Tests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
-      - run: dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - name: Core common contracts and result audit
+        shell: pwsh
+        run: |
+          $filter = 'TestCategory!=Windows'
+          # Explicit coverage exclusion: this test needs separate symlink privileges on Windows.
+          if ($IsWindows) { $filter += '&FullyQualifiedName!~RejectsReparsePointOwnedPaths' }
+          dotnet test tests/BrowserDock.Tests/BrowserDock.Tests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter "$filter" --logger 'trx;LogFileName=core.trx' --results-directory .artifacts/common
+          if ($LASTEXITCODE -ne 0) { throw 'Core common tests failed.' }
+          ./scripts/assert-suite-results.ps1 -Path .artifacts/common/core.trx -Suite Common -Project Core
+      - name: Legacy common contracts and result audit
+        shell: pwsh
+        run: |
+          dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f ${{ matrix.framework }} --no-build --no-restore --filter 'TestCategory!=Windows' --logger 'trx;LogFileName=legacy.trx' --results-directory .artifacts/common
+          if ($LASTEXITCODE -ne 0) { throw 'Legacy common tests failed.' }
+          ./scripts/assert-suite-results.ps1 -Path .artifacts/common/legacy.trx -Suite Common -Project Legacy
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -40,9 +52,10 @@ jobs:
         if: always()
         with:
           name: results-${{ matrix.os }}-${{ matrix.framework }}
-          path: tests/*/TestResults/*.trx
+          path: .artifacts/common/*.trx
+          if-no-files-found: error
   framework481:
-    if: github.event_name == 'workflow_dispatch' || (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
+    if: (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
     name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:required' && 'Not requested - framework481' || 'framework481' }}
     runs-on: windows-latest
     steps:
@@ -62,7 +75,12 @@ jobs:
           Write-Host "Framework Release=$release"
       - run: dotnet restore BrowserDock.slnx
       - run: dotnet build BrowserDock.slnx --no-restore -m:1
-      - run: dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f net481 --no-build --no-restore --filter "TestCategory!=Windows" --logger trx
+      - name: Framework contracts and result audit
+        shell: pwsh
+        run: |
+          dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f net481 --no-build --no-restore --filter 'TestCategory!=Windows' --logger 'trx;LogFileName=framework481.trx' --results-directory .artifacts/common
+          if ($LASTEXITCODE -ne 0) { throw 'Framework common tests failed.' }
+          ./scripts/assert-suite-results.ps1 -Path .artifacts/common/framework481.trx -Suite Common -Project Legacy
       - run: dotnet pack src/BrowserDock -c Release --no-restore -m:1 -o .artifacts/packages
       - run: dotnet pack src/BrowserDock.Legacy -c Release --no-restore -m:1 -o .artifacts/packages
       - name: Build classic C# 7.3 consumer from packages
@@ -83,4 +101,5 @@ jobs:
         if: always()
         with:
           name: results-framework481
-          path: tests/BrowserDock.FrameworkTests/TestResults/*.trx
+          path: .artifacts/common/*.trx
+          if-no-files-found: error
