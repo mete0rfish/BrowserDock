@@ -90,15 +90,19 @@ public sealed class ElementClickTests
         fixture.OnCommand = command =>
         {
             if (command.Name != DriverCommand.ClickElement) return Ready(command);
-            Interlocked.Increment(ref clicks); entered.TrySetResult(true);
+            Interlocked.Increment(ref clicks);
+            // Cancel at the side-effect boundary itself. Scheduling the test's
+            // continuation must not race the independent timeout scenario.
+            if (cancel) caller.Cancel();
+            entered.TrySetResult(true);
             try { release.Task.GetAwaiter().GetResult(); return Reply(null); }
             finally { finished.TrySetResult(true); }
         };
         try
         {
-            var pending = fixture.Wait("click", legacy, options: Options with { Timeout = TimeSpan.FromSeconds(1) }, token: caller.Token);
+            var pending = fixture.Wait("click", legacy, options: Options with
+            { Timeout = cancel ? Options.Timeout : TimeSpan.FromSeconds(1) }, token: caller.Token);
             await Bounded(entered.Task);
-            if (cancel) caller.Cancel();
             var error = await Catch(pending);
             if (cancel) Assert.That(((OperationCanceledException)error).CancellationToken, Is.EqualTo(caller.Token));
             else Assert.That(Category(error), Is.EqualTo(ErrorCategory.OperationTimedOut));
