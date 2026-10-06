@@ -256,6 +256,9 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         BrowserDockException error => error,
         StaleElementReferenceException => new(ErrorCategory.StaleDomElement, "The DOM node is stale. Explicitly reacquire it.", e),
         WebDriverTimeoutException => new(ErrorCategory.OperationTimedOut, "WebDriver command timed out.", e),
+        // A javascript-error response acknowledges script execution; the driver
+        // transport may still be healthy. Classify by type before message heuristics.
+        JavaScriptException => new(ErrorCategory.ScriptExecutionFailure, "JavaScript execution failed.", e),
         WebDriverException when e.Message.Contains("operation not supported", StringComparison.OrdinalIgnoreCase) || e.Message.Contains("unsupported operation", StringComparison.OrdinalIgnoreCase) || e.Message.Contains("operation is unsupported", StringComparison.OrdinalIgnoreCase) => new(ErrorCategory.UnsupportedAttachedCommand, "This command is unsupported by the attached browser.", e),
         NoSuchWindowException => new(ErrorCategory.TargetClosed, "WebDriver window was closed.", e),
         NoSuchElementException => new(ErrorCategory.ElementNotFound, "The locator did not match an element.", e),

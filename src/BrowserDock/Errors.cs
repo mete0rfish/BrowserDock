@@ -1,6 +1,6 @@
 namespace BrowserDock;
 
-public enum ErrorCategory { ConfigurationError, VersionMismatch, PatchMismatch, ChromeStartFailure, DevToolsEndpointFailure, ChromeExited, DriverProcessFailure, WebDriverSessionFailure, UnsupportedAttachedCommand, AmbiguousTarget, TargetClosed, TargetCrashed, StaleAttachment, AttachmentLost, StaleDomElement, OperationTimedOut, CleanupIncomplete, ProtocolError, ElementNotFound, ElementInteractionFailure }
+public enum ErrorCategory { ConfigurationError, VersionMismatch, PatchMismatch, ChromeStartFailure, DevToolsEndpointFailure, ChromeExited, DriverProcessFailure, WebDriverSessionFailure, UnsupportedAttachedCommand, AmbiguousTarget, TargetClosed, TargetCrashed, StaleAttachment, AttachmentLost, StaleDomElement, OperationTimedOut, CleanupIncomplete, ProtocolError, ElementNotFound, ElementInteractionFailure, ScriptExecutionFailure }
 public class BrowserDockException : Exception
 {
     public ErrorCategory Category { get; }
