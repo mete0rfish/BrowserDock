@@ -6,6 +6,13 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Added
 
+- Core/Legacy high-level `ClickAsync(locator, ElementWaitOptions, token)` on
+  `Browser` and `lease.Commands`: wait for displayed/enabled state, then issue
+  one guarded WebDriver click within the same overall deadline (#32, partial).
+  No replay after dispatch, JavaScript/native fallback or automatic load wait.
+  Custom `IBrowserCommands` implementers must add the new click member.
+  See [guarded clicks](docs/element-clicks.md).
+
 - Core/Legacy element existence, visibility and absence waits with one overall
   deadline, explicit target/frame context, cancellation and bounded observation
   retries (#32, partial). Add DOM attribute/property and live-value reads; keep
