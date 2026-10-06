@@ -63,19 +63,35 @@ public sealed class ElementInputBrowserTests
         await Input("!", false);
         Assert.That((await commands.ExecuteScriptAsync("return document.getElementById('subject').textContent", cancellationToken: token)).GetString(), Is.EqualTo("editable!"));
 
-        // An explicit contenteditable attribute inside another editor still
-        // does not make the descendant an editing host.
+        // Reject editable descendants even when a non-editable boundary makes
+        // the target a separate host: native Ctrl+End can escape to the outer editor.
         foreach (var clear in new[] { false, true })
-        foreach (var attribute in new[] { "", " contenteditable=true" })
+        foreach (var nestedMarkup in new[]
         {
-            await commands.ExecuteScriptAsync("document.body.innerHTML='<div contenteditable=true id=host><span id=subject" + attribute +
-                ">first</span><span id=other>second</span></div>';document.getElementById('host').focus();", cancellationToken: token);
+            "<span id=subject>first</span><span id=other>second</span>",
+            "<span id=subject contenteditable=true>first</span><span id=other>second</span>",
+            "before<div contenteditable=false><div><div id=subject contenteditable=true>first</div></div></div>after"
+        })
+        foreach (var focused in new[] { false, true })
+        {
+            await commands.ExecuteScriptAsync("document.body.innerHTML='<div contenteditable=true id=host>" + nestedMarkup + "</div>';" +
+                (focused ? "document.getElementById('subject').focus();" : "document.getElementById('host').focus();"), cancellationToken: token);
             var before = await commands.ExecuteScriptAsync("return document.body.innerHTML", cancellationToken: token);
             if (legacy)
                 Assert.That(Assert.ThrowsAsync<Legacy.BrowserDockException>(async () => await Input("X", clear, expectNotEditable: true))!.Category, Is.EqualTo(Legacy.ErrorCategory.OperationTimedOut));
             else
                 Assert.That(Assert.ThrowsAsync<BrowserDockException>(async () => await Input("X", clear, expectNotEditable: true))!.Category, Is.EqualTo(ErrorCategory.OperationTimedOut));
             Assert.That((await commands.ExecuteScriptAsync("return document.body.innerHTML", cancellationToken: token)).GetString(), Is.EqualTo(before.GetString()), "Rejected descendants must preserve the whole editor.");
+        }
+
+        // A non-editable ancestor alone must not prevent a standalone editor.
+        foreach (var kind in new[] { "true", "plaintext-only" })
+        {
+            await commands.ExecuteScriptAsync("document.body.innerHTML='<div contenteditable=false>before<div><div id=subject contenteditable=" + kind + ">old</div></div>after</div>';", cancellationToken: token);
+            await Input("new");
+            await Input("!", false);
+            Assert.That((await commands.ExecuteScriptAsync("return document.getElementById('subject').textContent", cancellationToken: token)).GetString(), Is.EqualTo("new!"));
+            Assert.That((await commands.ExecuteScriptAsync("return document.body.textContent", cancellationToken: token)).GetString(), Is.EqualTo("beforenew!after"));
         }
 
         foreach (var clear in new[] { false, true })

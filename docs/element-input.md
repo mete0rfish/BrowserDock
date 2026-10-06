@@ -36,11 +36,13 @@ controls) are outside this text-input subset and keep polling until the deadline
 unless their state/type changes. Hidden, disabled, read-only, missing and stale
 observations can be retried before any side effect.
 
-A contenteditable target must be an editing host: it is editable and its parent
-element is not editable. Descendants of another editing host are unsupported,
-even with their own `contenteditable=true` attribute. They keep polling without
-clearing or typing until they become a host or the deadline expires. Select the
-host itself to replace or append its contents.
+A contenteditable target must be editable with no editable ancestor. Nested
+editors are unsupported even when `contenteditable=false` separates the inner
+host from the outer editor: native Ctrl+End can still escape to the outer editor.
+Both replacement and append keep polling without clearing or typing until the
+target has no editable ancestor or the deadline expires. Select the outer host
+itself to replace or append its contents. Standalone hosts under non-editable
+ancestors, including `plaintext-only` editors, remain supported.
 
 Input uses WebDriver clear/key commands; there is no JavaScript assignment to the
 value, typing-speed simulation or input fallback. Text, including Unicode and
@@ -104,7 +106,8 @@ replace/append, newline submission, readiness changes, partial failures,
 cancellation and command-expiry boundaries through the controlled W3C executor.
 [ElementInputBrowserTests](../tests/Shared/ElementInputBrowserTests.cs) verifies
 real values/key events, Unicode, existing carets/selections, form events,
-textarea/contenteditable, rejected nested editable descendants, missing/removed
+textarea/contenteditable, rejected nested editors across non-editable boundaries
+with and without target focus, standalone/plaintext-only editors, missing/removed
 and external form associations, nested frames and no replay after clear-triggered DOM
 replacement. Its shared assertions run in the Linux investigation harness.
 Windows actual-browser execution and corresponding high-level SeleniumBase

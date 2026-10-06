@@ -25,12 +25,16 @@ public sealed partial class Browser
     {
         var tag = element.TagName.ToLowerInvariant();
         if (tag is not ("input" or "textarea"))
-            // WebDriver targets the editing host, not an arbitrary editable
-            // descendant. Reject descendants before Clear can remove their text.
+            // Native Ctrl+End can escape even an independent nested host across
+            // contenteditable=false. Only accept editors without editable ancestors.
             return driver.ExecuteScript("""
                 /* browserDockEditingHost */
                 const element = arguments[0];
-                return element.isContentEditable && !element.parentElement?.isContentEditable;
+                if (!element.isContentEditable) return false;
+                for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+                    if (ancestor.isContentEditable) return false;
+                }
+                return true;
                 """, element) is true;
         if (string.Equals(element.GetDomProperty("readOnly"), "true", StringComparison.OrdinalIgnoreCase)) return false;
         return tag == "textarea" || element.GetDomProperty("type") is "text" or "search" or "tel" or "url" or "email" or "password" or "number";
