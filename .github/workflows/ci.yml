@@ -7,9 +7,9 @@ permissions:
   contents: read
 jobs:
   common:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci:run'
+    if: github.event_name == 'workflow_dispatch' || (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
     # Skipped jobs count as success. Other labels must not emit required check names.
-    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Not requested - common' || 'common' }} (${{ matrix.os }}, ${{ matrix.framework }})
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:required' && 'Not requested - common' || 'common' }} (${{ matrix.os }}, ${{ matrix.framework }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -42,8 +42,8 @@ jobs:
           name: results-${{ matrix.os }}-${{ matrix.framework }}
           path: tests/*/TestResults/*.trx
   framework481:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci:run'
-    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Not requested - framework481' || 'framework481' }}
+    if: github.event_name == 'workflow_dispatch' || (github.event.label.name == 'ci:run' || github.event.label.name == 'ci:required')
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && github.event.label.name != 'ci:required' && 'Not requested - framework481' || 'framework481' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

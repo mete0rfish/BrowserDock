@@ -39,7 +39,7 @@ public sealed class ReferenceTests
             browser = await Browser.StartAsync(new() { ChromeBinaryPath = chromePath, Driver = new() { ExecutablePath = driverPath! } });
             chrome = Process.GetProcessById(browser.Health.ChromePid!.Value);
             var creation = chrome.StartTime;
-            await browser.NavigateAsync(new Uri(url, "/reference/page"));
+            await TestFixtures.FailureEvidence.CaptureAsync(() => browser.NavigateAsync(new Uri(url, "/reference/page")).AsTask());
             await using var old = await browser.GetWebDriverAsync();
             await old.Commands.ExecuteScriptAsync("localStorage.setItem('fixture','kept');document.cookie='fixture=kept;path=/';document.body.dataset.marker='kept'");
             var before = browser.TestSnapshot;

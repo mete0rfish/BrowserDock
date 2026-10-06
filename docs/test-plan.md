@@ -164,11 +164,13 @@ Each call runs Core net8.0/net10.0 and Legacy net481/net8.0/net10.0. The script 
 
 #### Manually requested PR checks
 
-Add the **`ci:run`** repository label to a PR to start Common contracts, Secret scan,
-and Windows hosted browser tests. Create the label under **Issues → Labels** if it
-does not exist. The workflows accept only the `labeled` PR activity and check the
+Add **`ci:required`** to a PR to run only the six required checks: Common contracts
+(including Windows common/.NET Framework tests) and Secret scan. This label does
+not start actual browser tests. Add **`ci:run`** instead to also run Windows hosted
+browser tests. Create the selected label under **Issues → Labels** if it does not
+exist. The workflows accept only the `labeled` PR activity and check the
 label being added, so PR creation, pushes, and a label left attached do not start
-CI. After new commits or a base-branch update, remove and re-add `ci:run` to test
+CI. After new commits or a base-branch update, remove and re-add the selected label to test
 the current revision. PR runs check out GitHub's test merge commit with the base
 branch; resolve merge conflicts before requesting them.
 
@@ -194,11 +196,14 @@ version `154.0.8037.57`, verifies both executable versions, and records download
 URLs and SHA256 values. The version is pinned in the workflow, not resolved from
 the runner's installed Chrome or a moving Stable channel.
 
-The job invokes the full normal suite with `-FixtureKind GitHubHosted`, including
+The job invokes the normal suite with `-FixtureKind GitHubHosted`, including
 common regressions and actual browser tests across all five combinations above.
 Chrome keeps its existing headed launch mode; no headless or sandbox overrides
 are added. Required tests must execute and pass; zero tests, unexpected skips,
 and missing TRX fail the run. Stress remains opt-in through the manual input.
+Tests categorized `Quarantined` are excluded from normal and stress runs, including
+the Windows 11 runner. Their separate manual results are required to assess the
+missing coverage; a passing normal run does not resolve their tracked defects.
 
 Download the `windows-hosted-browser-<run-id>-<attempt>` artifact for the TRX,
 reference observations, `fixture.json`, and `downloads.json`. Fixture metadata
@@ -207,6 +212,48 @@ image/version, runtime inventory, and browser versions/hashes. These are Windows
 Server regression results, not a Windows 11 compatibility claim. They do not
 satisfy the separate Windows 11 workflow required by the release publication
 gate, or establish real-browser coverage for scenarios tested only with mocks.
+
+#### Temporarily quarantined browser test (#41)
+
+`NestedFrameReacquisitionPreservesContextAcrossSessionChange` remains in source
+with its assertions intact and `Category("Quarantined")`. In PR #42's
+[run 37093628704, attempt 2](https://github.com/mete0rfish/BrowserDock/actions/runs/37093628704/attempts/2),
+Core net8.0 passed 294 tests and failed this one at its initial Standard navigation,
+before the frame/reconnect assertions. It exhausted the 60-second budget in
+`navigation-events`, with no accepted commit/load event. The trigger is still
+unconfirmed; quarantine is not a product fix or proof of a faulty test.
+
+After the workflow is present on the default branch, use **Actions → Windows
+quarantined browser tests → Run workflow**, select the candidate branch, and run
+it explicitly. This workflow has only `workflow_dispatch`; `ci:run` does not start
+it. It uses the same pinned Chrome/driver pair and a separate `quarantined-browser`
+check/concurrency group. Failures are not ignored or automatically retried.
+Download `windows-quarantined-browser-<run-id>-<attempt>` for TRX and fixture metadata.
+
+Local Windows execution is also available:
+
+```powershell
+./scripts/test-windows.ps1 -Chrome C:\Chrome\chrome.exe -Driver C:\Chrome\chromedriver.exe -QuarantinedOnly -Results .artifacts/quarantine/attempt-1
+```
+
+The manual suite selects only quarantined Core cases on net8.0/net10.0; it stops
+at the first failure and does not run empty Legacy suites. Use a fresh results
+directory for every attempt. `fixture.json` records the filter and quarantine flag.
+An empty run, skipped test, missing TRX, or failed assertion still fails validation.
+
+Restore this case to the normal suite only after #41 records the demonstrated
+cause and fix, plus at least three consecutive full normal runs with the case
+included on the same candidate and pinned fixture, passing both Core runtimes.
+Preserve every attempt's artifacts. Remove its quarantine category in the
+restoration PR; keep separate Windows 11 acceptance evidence. Other failures in
+#41 and the CDC ordering finding in PR #43 remain separate work.
+
+Local configuration validation (2026-10-06, Linux): solution build passed with
+zero warnings/errors; PowerShell parsing/filter evaluation and actionlint passed.
+Test discovery on Core net8.0/net10.0 found 294 normal, 297 stress-enabled and one
+quarantined case per runtime. Comparing the old/new normal selections confirmed
+that only this case was excluded. These are discovery results, not Windows test
+passes; neither the normal nor quarantined Windows workflow was executed.
 
 ### Step 4 — Compare the same local pages with SeleniumBase
 

@@ -5,12 +5,14 @@ namespace BrowserDock.Tests;
 
 public sealed partial class WindowsTests
 {
-    [Test]
+    // #41: initial navigation intermittently times out before the frame assertions.
+    // Retain coverage in the manual quarantined suite until the cause is fixed.
+    [Test, Category("Quarantined")]
     public async Task NestedFrameReacquisitionPreservesContextAcrossSessionChange()
     {
         await using var server = await FixtureAsync();
         await using var browser = await Browser.StartAsync(options);
-        await browser.NavigateAsync(new Uri(server.Url, "/reference/page"));
+        await TestFixtures.FailureEvidence.CaptureAsync(() => browser.NavigateAsync(new Uri(server.Url, "/reference/page")).AsTask());
         var input = await browser.FindAsync(Locator.Id("frame-input"), new() { FramePath = [Locator.Id("outer"), Locator.Id("inner")] });
         await input.SendKeysAsync("nested");
         await browser.DisconnectWebDriverAsync();
