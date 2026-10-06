@@ -15,10 +15,10 @@ internal sealed class UcScriptRegistration
             throw new BrowserDockException(ErrorCategory.DevToolsEndpointFailure, "The document-script session was detached.");
     }
     internal async Task ReconcileAsync(IReadOnlyList<string> desired,
-        Func<string, object, CancellationToken, Task<JsonElement>> send, Action invalidate, CancellationToken token, bool forceOrder = false)
+        Func<string, object, CancellationToken, Task<JsonElement>> send, Action invalidate, CancellationToken token)
     {
         EnsureAttached();
-        if (!forceOrder && sources.SequenceEqual(desired, StringComparer.Ordinal)) return;
+        if (sources.SequenceEqual(desired, StringComparer.Ordinal)) return;
         var mutated = false;
         try
         {
@@ -42,11 +42,16 @@ internal sealed class UcScriptRegistration
             EnsureAttached();
             sources = desired.ToArray();
         }
-        catch
+        catch (Exception original)
         {
             // A canceled/failed command might already have registered a script. Never retry it
             // against this session; transport recovery creates fresh session-owned registrations.
-            if (mutated) { Detach(); invalidate(); }
+            if (mutated)
+            {
+                Detach();
+                try { invalidate(); }
+                catch (Exception cleanup) { original.Data["ScriptCleanupFailure"] = cleanup; }
+            }
             throw;
         }
     }

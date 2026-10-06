@@ -489,6 +489,7 @@ public sealed class NavigationContractTests
                             if (redirectedFrom is not null) parameters["redirectResponse"] = new { url = redirectedFrom };
                             await Send(new { method = "Network.requestWillBeSent", sessionId = "session-page", @params = parameters });
                         }
+                        if (Scenario == "standard") await DocumentRequest("current", "new-loader", root.GetProperty("params").GetProperty("url").GetString()!);
                         if (Scenario?.StartsWith("superseded-", StringComparison.Ordinal) == true)
                         {
                             Task CurrentRequest() => DocumentRequest("current", "new-loader", "http://fixture/page");

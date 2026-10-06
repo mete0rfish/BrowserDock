@@ -16,7 +16,7 @@ public sealed class UcLaunchProfileBrowserTests
         var chrome = Environment.GetEnvironmentVariable("BROWSERDOCK_CHROME");
         var driver = Environment.GetEnvironmentVariable("BROWSERDOCK_DRIVER");
         Assert.That(File.Exists(chrome) && File.Exists(driver), Is.True, "Supply the pinned Chrome/driver fixture.");
-        const string profileScript = "globalThis.__profileOrder=['profile'];globalThis.__profileReady=document.readyState;globalThis.__profileRuns=(globalThis.__profileRuns||0)+1";
+        const string profileScript = "globalThis.__profileOrder=['profile'];globalThis.__profileReady=document.readyState;globalThis.__profileRuns=(globalThis.__profileRuns||0)+1;globalThis.__profileCdc=Object.getOwnPropertyNames(globalThis).filter(k=>/^[a-z]{3}_[a-zA-Z0-9]{22}_(Array|Promise|Symbol|Object|Proxy|JSON|Window)$/.test(k))";
         const string callerScript = "globalThis.__profileOrder.push('caller')";
         var options = legacy
             ? new Legacy.BrowserOptions { ChromeBinaryPath = chrome, Driver = new() { ExecutablePath = driver! },
@@ -37,24 +37,25 @@ public sealed class UcLaunchProfileBrowserTests
         const string seed = "globalThis.cdc_abcdefghijklmnopqrstuv_Array='fixture'";
         await browser.ExecuteCdpAsync("Page.addScriptToEvaluateOnNewDocument", new { source = seed });
         await browser.ExecuteCdpAsync("Runtime.evaluate", new { expression = seed });
-        foreach (var phase in new[] { "standard", "detached", "replacement", "recovery" })
+        foreach (var phase in new[] { "standard", "attached-recovery", "detached", "replacement", "recovery", "reconnected-standard" })
         {
-            var url = new Uri(server.Url, "/page?phase=" + phase);
-            if (phase == "recovery") browser.InterruptCdpForTest();
+            var url = new Uri(server.Url, "/uc-profile?phase=" + phase);
+            if (phase is "recovery" or "attached-recovery") browser.InterruptCdpForTest();
+            if (phase == "reconnected-standard") await (await browser.Uc.ConnectAsync()).DisposeAsync();
             if (legacy)
             {
-                if (phase == "standard") await facade.Uc.NavigateAsync(url);
+                if (phase is "standard" or "attached-recovery" or "reconnected-standard") await facade.Uc.NavigateAsync(url);
                 else if (phase == "replacement") await facade.Uc.OpenWithDisconnectAsync(url);
                 else await facade.Uc.OpenAsync(url);
             }
             else
             {
-                if (phase == "standard") await browser.Uc.NavigateAsync(url);
+                if (phase is "standard" or "attached-recovery" or "reconnected-standard") await browser.Uc.NavigateAsync(url);
                 else if (phase == "replacement") await browser.Uc.OpenWithDisconnectAsync(url);
                 else await browser.Uc.OpenAsync(url);
             }
             var observation = await browser.ExecuteCdpAsync("Runtime.evaluate", new
-            { expression = "({order:globalThis.__profileOrder,runs:globalThis.__profileRuns,ready:globalThis.__profileReady,cdc:'cdc_abcdefghijklmnopqrstuv_Array' in globalThis})", returnByValue = true });
+            { expression = "({order:globalThis.__profileOrder,runs:globalThis.__profileRuns,ready:globalThis.__profileReady,pageCdc:globalThis.__pageCdc,profileCdc:globalThis.__profileCdc,cdc:'cdc_abcdefghijklmnopqrstuv_Array' in globalThis})", returnByValue = true });
             var value = observation.GetProperty("result").GetProperty("value");
             Assert.Multiple(() =>
             {
@@ -62,9 +63,11 @@ public sealed class UcLaunchProfileBrowserTests
                 Assert.That(value.GetProperty("runs").GetInt32(), Is.EqualTo(1), phase);
                 Assert.That(value.GetProperty("ready").GetString(), Is.EqualTo("loading"), phase);
                 Assert.That(value.GetProperty("cdc").GetBoolean(), Is.False, phase);
+                Assert.That(value.GetProperty("pageCdc").GetArrayLength(), Is.Zero, phase + ": first inline page script");
+                Assert.That(value.GetProperty("profileCdc").GetArrayLength(), Is.Zero, phase + ": profile script");
             });
         }
-        await (await browser.Uc.ConnectAsync()).DisposeAsync();
+        await (await browser.Uc.ReconnectAsync()).DisposeAsync();
         Assert.That((await browser.ExecuteCdpAsync("Runtime.evaluate", new { expression = "globalThis.__profileRuns", returnByValue = true })).GetProperty("result").GetProperty("value").GetInt32(), Is.EqualTo(1), "Reattachment must not replay caller scripts in the current document.");
     }
 }

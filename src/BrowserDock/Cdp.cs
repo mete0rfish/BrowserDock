@@ -265,12 +265,12 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         }
         catch { DiscardSessionScripts(session); if (ucProfile) connection.Invalidate(); throw; }
     }
-    public async Task PrepareControlledAsync(CancellationToken token, bool newAttachment = false)
+    public async Task PrepareControlledAsync(CancellationToken token)
     {
         var session = await SessionAsync(Controlled, token).ConfigureAwait(false);
-        await ApplyScriptsAsync(session.SessionId, token, newAttachment).ConfigureAwait(false);
+        await ApplyScriptsAsync(session.SessionId, token).ConfigureAwait(false);
     }
-    private async Task ApplyScriptsAsync(string session, CancellationToken token, bool newAttachment = false)
+    private async Task ApplyScriptsAsync(string session, CancellationToken token)
     {
         if (!registered.TryGetValue(session, out var registration))
             throw new BrowserDockException(ErrorCategory.DevToolsEndpointFailure, "The document-script session no longer exists.");
@@ -294,20 +294,27 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                     knownCdcProperties.UnionWith(verified);
                     verified = knownCdcProperties.OrderBy(x => x, StringComparer.Ordinal).ToArray();
                 }
-                if (verified.Length > 0) removalScript = $"(() => {{ const names = {JsonSerializer.Serialize(verified)}; for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of names) {{ try {{ delete p[k]; }} catch {{}} }} }})()";
+                if (verified.Length > 0) removalScript = CdcCleanupScript(verified);
             }
         }
         if (ucProfile)
         {
             if (removalScript is not null) registeredScripts.Insert(0, removalScript);
             await registration.Uc.ReconcileAsync(registeredScripts.Distinct(StringComparer.Ordinal).ToArray(),
-                (method, args, ct) => connection.SendAsync(method, args, session, ct), connection.Invalidate, token, newAttachment).ConfigureAwait(false);
+                (method, args, ct) => connection.SendAsync(method, args, session, ct), connection.Invalidate, token).ConfigureAwait(false);
             return;
         }
         if (removalScript is not null) registeredScripts.Add(removalScript);
         foreach (var script in registeredScripts.Distinct(StringComparer.Ordinal))
             if (!registration.Sources.Contains(script)) { await connection.SendAsync("Page.addScriptToEvaluateOnNewDocument", new { source = script }, session, token).ConfigureAwait(false); registration.Sources.Add(script); }
     }
+    // The driver's initializer belongs to a different CDP session. Reordering our
+    // observer's scripts cannot order them after that initializer; install a second
+    // cleanup in the driver session without duplicating profile/caller scripts.
+    internal string? DriverCdcCleanupScript => ucProfile && removeDiscoveredCdcProperties && knownCdcProperties.Count > 0
+        ? CdcCleanupScript(knownCdcProperties.OrderBy(x => x, StringComparer.Ordinal).ToArray()) : null;
+    private static string CdcCleanupScript(string[] names)
+        => $"(() => {{ const names = {JsonSerializer.Serialize(names)}; for(let p=globalThis,n=0;p&&n<8;p=Object.getPrototypeOf(p),n++) for(const k of names) {{ try {{ delete p[k]; }} catch {{}} }} }})()";
     public Task<JsonElement> BrowserAsync(string method, object? args, CancellationToken token) => connection.SendAsync(method, args, null, token);
     public async Task<JsonElement> PageAsync(string method, object? args, TargetKey? target, CancellationToken token)
     {

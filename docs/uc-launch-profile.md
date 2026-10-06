@@ -83,15 +83,25 @@ semantics are not inspected or classified as supported fingerprint changes.
   to remove every upstream property or change every fingerprint.
 - A changed cleanup source replaces this session's ordered set: remove its owned
   script IDs, then register cleanup/profile/caller sources in order. Unchanged
-  sets make no additional registration calls during ordinary preparation. A new
-  WebDriver attachment refreshes the order even when sources are unchanged, since
-  that driver can install its own initialization scripts. Independent raw-CDP registrations
-  are not removed. Do not concurrently bypass the controller to mutate its scripts.
+  sets make no additional registration calls during ordinary preparation.
+  Independent raw-CDP registrations are not removed. Do not concurrently bypass
+  the controller to mutate its scripts.
+- ChromeDriver registers its CDC initializer in another CDP session. Re-registering
+  observer scripts cannot establish order between sessions. After target binding,
+  BrowserDock also registers **only CDC cleanup** through ChromeDriver's public
+  CDP command endpoint, after that initializer in the same session. It tracks its
+  own identifier per attachment/window and refreshes only when cleanup changes.
+  Profile/caller scripts remain single registrations in the observer session.
+  Observer cleanup still applies to detached navigation; driver cleanup disappears
+  with that driver session. This avoids depending on which session runs first.
 - Cancellation or failure during registration can have an uncertain remote result.
   The affected transport is invalidated rather than retrying against the same
-  session. A subsequent normal health probe must recover it. Caller cancellation
+  session. Observer failures require CDP recovery; uncertain driver registrations
+  terminate that attachment and require a fresh WebDriver session. Caller cancellation
   remains cancellation; this policy does not replay the failed navigation.
-- Reconnection does not replay caller scripts in the current document. Library
+- Reconnection does not replay caller scripts or execute cleanup in the current
+  document. ChromeDriver may immediately reintroduce CDC properties there; the
+  cleanup guarantee applies to the next controlled document. Library
   tab replacement creates `about:blank`, prepares scripts, then navigates. Session
   detachment/target closure discards local registration state; recovery reinstalls
   scripts on fresh sessions. Profile mode requires the CDP script-removal method.
@@ -132,5 +142,8 @@ session cleanup and uncertain registration. These are contracts, not browser par
 `UcLaunchProfileBrowserTests` compiles into both suites and observes initial blank,
 document-start order, CDC cleanup, ordinary/detached navigation, replacement,
 reattachment and socket recovery on Windows. It has not been executed for this change.
-Windows CI was excluded from this work at the maintainer's request. #41 remains
-open; #30's Windows acceptance and #36's differential evidence remain outstanding.
+The Linux Chromium/ChromeDriver reproduction and required common CI are recorded
+in [issue-30 validation](issue-30-validation.md). Windows browser tests remain
+excluded; required CI includes hosted Windows common contracts and net481 runtime
+checks. #41 remains open; #30's Windows browser acceptance and #36's differential
+comparison remain outstanding.

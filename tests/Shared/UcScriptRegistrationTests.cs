@@ -8,17 +8,6 @@ namespace BrowserDock.Tests;
 public sealed class UcScriptRegistrationTests
 {
     [Test]
-    public async Task NewDriverAttachmentCanRestoreOrderWithoutDuplicatingSources()
-    {
-        var registration = new UcScriptRegistration(); var fixture = new ScriptAgent();
-        await registration.ReconcileAsync(new[] { "cleanup", "caller" }, fixture.Send, fixture.Invalidate, CancellationToken.None);
-        fixture.Events.Clear();
-        await registration.ReconcileAsync(new[] { "cleanup", "caller" }, fixture.Send, fixture.Invalidate, CancellationToken.None, forceOrder: true);
-        Assert.That(fixture.Events, Is.EqualTo(new[] { "remove:1", "remove:2", "add:cleanup", "add:caller" }));
-        Assert.That(fixture.Active.Count, Is.EqualTo(2));
-    }
-
-    [Test]
     public async Task ChangedCdcCleanupReplacesTheOrderedSetWithoutAccumulatingScripts()
     {
         var registration = new UcScriptRegistration();
@@ -47,6 +36,19 @@ public sealed class UcScriptRegistrationTests
         var count = fixture.Events.Count;
         Assert.ThrowsAsync<BrowserDockException>(async () => await registration.ReconcileAsync(new[] { "new" }, fixture.Send, fixture.Invalidate, CancellationToken.None));
         Assert.That(fixture.Events.Count, Is.EqualTo(count));
+    }
+
+    [Test]
+    public void CleanupFailurePreservesTheOriginalCancellation()
+    {
+        var registration = new UcScriptRegistration(); var fixture = new ScriptAgent();
+        using var canceled = new CancellationTokenSource();
+        fixture.AfterMutation = () => { canceled.Cancel(); throw new OperationCanceledException(canceled.Token); };
+        var error = Assert.CatchAsync<OperationCanceledException>(async () => await registration.ReconcileAsync(new[] { "cleanup" },
+            fixture.Send, () => throw new IOException("cleanup failed"), canceled.Token));
+        Assert.That(error!.CancellationToken, Is.EqualTo(canceled.Token));
+        Assert.That(error.Data["ScriptCleanupFailure"], Is.InstanceOf<IOException>());
+        Assert.ThrowsAsync<BrowserDockException>(async () => await registration.ReconcileAsync(new[] { "cleanup" }, fixture.Send, fixture.Invalidate, CancellationToken.None));
     }
 
     [Test]

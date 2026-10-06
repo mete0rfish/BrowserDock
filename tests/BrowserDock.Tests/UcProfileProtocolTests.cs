@@ -40,6 +40,7 @@ public sealed class UcProfileProtocolTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await controller.InitializeAsync(deadline.Token);
         fixture.CdcNames = ["cdc_abcdefghijklmnopqrstuv_Array"];
+        fixture.Scenario = "standard";
         await controller.NavigateAsync(new Uri("http://fixture/page"), new(), async token =>
         {
             Assert.That(fixture.ScriptRemovals, Is.EqualTo(1));

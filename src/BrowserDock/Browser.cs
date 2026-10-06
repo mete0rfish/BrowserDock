@@ -222,8 +222,6 @@ public sealed partial class Browser : IAsyncDisposable
             PublishAttachment(await Attachment.CreateAsync(driverPath, endpoint!, options.Timeouts, token).ConfigureAwait(false));
             await StageAsync("session-created", token).ConfigureAwait(false);
             await BindTargetAsync(token).ConfigureAwait(false);
-            // ChromeDriver may introduce CDC properties only after the initial CDP session was prepared.
-            if (options.UcProfile is not null) await cdp.PrepareControlledAsync(token, newAttachment: true).ConfigureAwait(false);
             await ProbeAsync(token).ConfigureAwait(false);
             if (attachment?.Process.Alive != true) throw new BrowserDockException(ErrorCategory.DriverProcessFailure, "Driver exited while binding target.");
             OpenAttachment();
@@ -267,6 +265,11 @@ public sealed partial class Browser : IAsyncDisposable
                 driver.SwitchTo().Window(found); return found;
             }, token).ConfigureAwait(false);
             lock (windows) windows[target.Key] = handle;
+            if (options.UcProfile is not null)
+            {
+                await cdp.PrepareControlledAsync(token).ConfigureAwait(false);
+                await attachment.PrepareCdcCleanupAsync(handle, cdp.DriverCdcCleanupScript, token).ConfigureAwait(false);
+            }
         }
         finally
         {

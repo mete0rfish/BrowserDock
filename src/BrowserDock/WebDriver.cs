@@ -4,6 +4,7 @@ using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using OpenQA.Selenium.Remote;
 using BrowserDock.Hosting;
+using BrowserDock.Cdp;
 
 namespace BrowserDock.WebDriver;
 
@@ -123,6 +124,30 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
             _ = work.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             throw;
         }
+    }
+    private readonly Dictionary<string, UcScriptRegistration> cdcCleanup = new(StringComparer.Ordinal);
+    private bool cdpCommandRegistered;
+    // Called while the lifecycle/command gates hold the selected top-level window.
+    internal async Task PrepareCdcCleanupAsync(string handle, string? source, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (source is null && !cdcCleanup.ContainsKey(handle)) return;
+        if (!cdpCommandRegistered)
+        {
+            if (!Executor.TryAddCommand("browserDockCdp", new HttpCommandInfo("POST", "/session/{sessionId}/goog/cdp/execute")))
+                throw new BrowserDockException(ErrorCategory.ProtocolError, "Could not register ChromeDriver's CDP command.");
+            cdpCommandRegistered = true;
+        }
+        if (!cdcCleanup.TryGetValue(handle, out var registration)) cdcCleanup[handle] = registration = new();
+        await registration.ReconcileAsync(source is null ? Array.Empty<string>() : new[] { source },
+            (method, args, ct) => InvokeAsync(_ =>
+            {
+                var response = Executor.Execute(new Command(Driver.SessionId, "browserDockCdp",
+                    new Dictionary<string, object?> { ["cmd"] = method, ["params"] = args }));
+                if (response.Status != WebDriverResult.Success)
+                    throw new BrowserDockException(ErrorCategory.ProtocolError, "ChromeDriver rejected the document-script command.");
+                return JsonSerializer.SerializeToElement(response.Value);
+            }, ct), StopIo, token).ConfigureAwait(false);
     }
     public Task DestroyAsync(CancellationToken token)
     {
