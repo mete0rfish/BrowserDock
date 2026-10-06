@@ -16,8 +16,21 @@ if ([int]$counters.total -ne $results.Count -or [int]$counters.passed -ne $resul
 foreach ($result in $results) {
     if ($result.outcome -ne 'Passed') { throw "Unexpected $($result.outcome): $($result.testName) in $Path" }
 }
-$classes = @($document.SelectNodes('//t:UnitTest/t:TestMethod', $ns) | ForEach-Object { $_.className })
+$definitions = @{}
+foreach ($test in $document.SelectNodes('//t:UnitTest', $ns)) {
+    $id = [string]$test.id
+    if (-not $id -or $definitions.ContainsKey($id)) { throw "Missing or duplicate test definition ID in $Path" }
+    $definitions[$id] = [string]$test.TestMethod.className
+}
+$classes = @()
+$executed = @{}
+foreach ($result in $results) {
+    $id = [string]$result.testId
+    if (-not $definitions.ContainsKey($id) -or $executed.ContainsKey($id)) { throw "Missing definition or duplicate result for test ID '$id' in $Path" }
+    $executed[$id] = $true
+    $classes += $definitions[$id]
+}
 foreach ($class in $RequiredClasses) {
-    if (-not ($classes | Where-Object { $_ -eq $class })) { throw "Required fixture $class was not discovered in $Path" }
+    if ($class -notin $classes) { throw "Required fixture $class did not execute in $Path" }
 }
 Write-Host "Validated $($results.Count) passing tests in $Path"

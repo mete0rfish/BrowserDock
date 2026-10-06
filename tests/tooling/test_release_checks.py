@@ -28,12 +28,14 @@ class ReleaseChecks(unittest.TestCase):
     @staticmethod
     def run_record():
         return dict(status="completed", conclusion="success", head_sha="a" * 40,
-                    event="workflow_dispatch", path=".github/workflows/windows-browser.yml",
+                    event="pull_request_target", display_title="Windows 11 acceptance " + "a" * 40 + " ci:windows11:stress", path=".github/workflows/windows-browser.yml",
                     head_repository={"full_name": "owner/repo"})
 
     def test_rejects_wrong_failed_or_untrusted_evidence(self):
         for field, value in (("status", "in_progress"), ("conclusion", "failure"),
-                             ("head_sha", "b" * 40), ("event", "pull_request"),
+                             ("display_title", "Windows 11 acceptance " + "b" * 40 + " ci:windows11:stress"),
+                             ("display_title", "Windows 11 acceptance " + "a" * 40 + " ci:windows11"),
+                             ("event", "pull_request"), ("event", "workflow_dispatch"),
                              ("path", ".github/workflows/ci.yml"),
                              ("head_repository", {"full_name": "fork/repo"}),
                              ("head_repository", None)):
