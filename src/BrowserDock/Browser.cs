@@ -540,6 +540,7 @@ public sealed partial class Browser : IAsyncDisposable
             error is BrowserDockException { Category: ErrorCategory.AttachmentLost or ErrorCategory.OperationTimedOut }))
             await RecoverCommandAsync(used, closedEpoch, cleanupErrors).ConfigureAwait(false);
         if (failure.Data["DriverCleanupFailure"] is Exception ioFailure) cleanupErrors.Add($"driver I/O: {ioFailure.GetType().Name}");
+        if (cleanupErrors.Count != 0) used?.RecordCleanup(error);
         if (error is BrowserDockException browserError)
         {
             browserError.OperationId = id; browserError.Diagnostic = Health;

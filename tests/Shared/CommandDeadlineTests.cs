@@ -519,6 +519,67 @@ public sealed class CommandDeadlineTests
         Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(1), "Successful cleanup steps must not repeat.");
     }
 
+    [TestCase("terminate"), TestCase("executor")]
+    public async Task CanceledCleanupWaitReportsBlockedStageAndRetainsItsOwner(string stage)
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var entered = Signal(); var release = Signal();
+        void Block() { entered.TrySetResult(true); release.Task.GetAwaiter().GetResult(); }
+        if (stage == "terminate") fixture.Attachment.TerminateForTest = () => { Block(); fixture.Attachment.Process.Terminate(); };
+        else fixture.Executor.DisposeHook = Block;
+        using var caller = new CancellationTokenSource();
+        var waiting = fixture.Attachment.DestroyAsync(caller.Token);
+        try
+        {
+            await Bounded(entered.Task);
+            caller.Cancel();
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await Bounded(waiting))!;
+            Assert.That(error.CancellationToken, Is.EqualTo(caller.Token));
+            using var trace = JsonDocument.Parse((string)error.Data["Cleanup.AttachmentTrace"]!);
+            var last = trace.RootElement.EnumerateArray().Last().GetProperty("event").GetString();
+            Assert.That(last, Is.EqualTo(stage == "terminate" ? "process-terminate-start" : "executor-dispose-start"));
+            using var snapshot = JsonDocument.Parse((string)error.Data["Cleanup.ProcessSnapshot"]!);
+            Assert.That(snapshot.RootElement.GetProperty("pid").GetInt32(), Is.EqualTo(fixture.Attachment.Process.Id));
+            Assert.That(snapshot.RootElement.GetProperty("stdout").GetString(), Is.Not.Empty);
+            var core = new BrowserDockException(ErrorCategory.CleanupIncomplete, "cleanup");
+            fixture.Attachment.RecordCleanup(core);
+            Assert.That(Legacy.Api.Translate(core).Data["Cleanup.AttachmentTrace"], Is.EqualTo(core.Data["Cleanup.AttachmentTrace"]));
+        }
+        finally { release.TrySetResult(true); }
+        await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None));
+        Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(1));
+        Assert.That(fixture.Attachment.Process.Alive, Is.False);
+    }
+
+    [Test]
+    public async Task CleanupDiagnosticsExcludeExceptionMessagesAndProcessPaths()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        fixture.Executor.DisposeFailure = new InvalidOperationException("private-script secret-cookie /private/profile");
+        var error = Assert.CatchAsync<AggregateException>(async () => await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None)))!;
+        var evidence = string.Join(" ", error.Data.Values.Cast<object>());
+        Assert.That(evidence, Does.Not.Contain("private-script").And.Not.Contain("secret-cookie").And.Not.Contain("/private/profile"));
+        Assert.That(evidence, Does.Contain("executor-dispose-failed").And.Contain("InvalidOperationException"));
+        fixture.Executor.DisposeFailure = null;
+        await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None));
+    }
+
+    [Test]
+    public async Task RepeatedOwnedAttachmentCleanupCompletesExitAndBothOutputDrains()
+    {
+        // A portable controlled repetition, also executed by the net481 CI job.
+        // A pass does not identify the historical intermittent failure's cause.
+        for (var iteration = 0; iteration < 20; iteration++)
+        {
+            await using var fixture = await CommandFixture.StartAsync();
+            await Bounded(fixture.Browser.StopAsync().AsTask());
+            using var snapshot = JsonDocument.Parse(fixture.Attachment.Process.WaitSnapshot);
+            Assert.That(snapshot.RootElement.GetProperty("stage").GetString(), Is.EqualTo("completed"), "iteration " + iteration);
+            Assert.That(snapshot.RootElement.GetProperty("stdout").GetString(), Is.EqualTo("RanToCompletion"));
+            Assert.That(snapshot.RootElement.GetProperty("stderr").GetString(), Is.EqualTo("RanToCompletion"));
+        }
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
@@ -604,10 +665,21 @@ public sealed class CommandDeadlineTests
         }
         public async ValueTask DisposeAsync()
         {
+            var failures = new List<Exception>();
             try { await Bounded(Browser.StopAsync().AsTask()); }
-            finally
+            catch (Exception error) { Record(error); }
+            foreach (var item in owned)
             {
-                foreach (var item in owned) await Bounded(item.DestroyAsync(CancellationToken.None));
+                try { await Bounded(item.DestroyAsync(CancellationToken.None)); }
+                catch (Exception error) { Record(error); }
+            }
+            if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException("Fixture stop and attachment cleanup failed.", failures);
+
+            void Record(Exception error)
+            {
+                foreach (var item in owned) { item.RecordCleanup(error); TestFixtures.FailureEvidence.Write(error); }
+                failures.Add(error);
             }
         }
     }
