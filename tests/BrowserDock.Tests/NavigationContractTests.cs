@@ -42,6 +42,10 @@ public sealed class NavigationContractTests
         Assert.That(controller.Resolve().Id, Is.EqualTo("page"));
         Assert.That(deadline.IsCancellationRequested, Is.False);
         Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+        fixture.Scenario = null;
+        var result = await controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Completed));
+        Assert.That(fixture.AttachRequests, Is.EqualTo(2), "A subsequent operation must not reuse the detached observer session.");
     }
 
     [TestCase("other-frame-failed"), TestCase("old-loader-failed"), TestCase("other-session-failed"), TestCase("other-session-detached")]
@@ -293,6 +297,10 @@ public sealed class NavigationContractTests
         try
         {
             await fixture.HeldRequest.Task.WaitAsync(setup.Token);
+            // Receipt on the server can precede completion of the client's socket send.
+            // A second command crosses the send gate so cancellation tests the held
+            // response wait, rather than legitimately aborting an in-flight socket send.
+            await controller.BrowserAsync("Browser.getVersion", null, setup.Token);
             canceled.Cancel();
             var error = Assert.CatchAsync<OperationCanceledException>(async () => await pending.WaitAsync(setup.Token))!;
             Assert.That(error.Data["Navigation.Stage"], Is.EqualTo(method));
@@ -343,6 +351,7 @@ public sealed class NavigationContractTests
         public int EmptySnapshotsRemaining;
         public int DiscoveryRequests;
         public int CreatedTargets;
+        public int AttachRequests;
         public bool MultipleInitialPages;
         public TaskCompletionSource<bool> EmptySnapshotRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public System.Collections.Concurrent.ConcurrentBag<string> Sources = new();
@@ -377,6 +386,7 @@ public sealed class NavigationContractTests
                     do { message = await socket.ReceiveAsync(bytes, context.RequestAborted); if (message.MessageType == WebSocketMessageType.Close) return; stream.Write(bytes, 0, message.Count); } while (!message.EndOfMessage);
                     using var document = JsonDocument.Parse(stream.ToArray());
                     var root = document.RootElement; var method = root.GetProperty("method").GetString()!;
+                    if (method == "Target.attachToTarget") Interlocked.Increment(ref AttachRequests);
                     if (method == HoldMethod) { HeldRequest.TrySetResult(true); continue; }
                     if ((method.StartsWith("Page.", StringComparison.Ordinal) || method.StartsWith("Runtime.", StringComparison.Ordinal)) && !root.TryGetProperty("sessionId", out _)) Interlocked.Increment(ref PageCallsWithoutSession);
                     object result = method switch

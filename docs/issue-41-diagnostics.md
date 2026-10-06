@@ -18,7 +18,8 @@ removed cases or the quarantined nested-frame case.
   or timeout retains `Navigation.CdpErrorText` and `Navigation.AwaitingDownload`.
   This ambiguous case can still consume the full existing budget.
 - Fail with `DevToolsEndpointFailure` when the active observer session detaches,
-  even if the browser connection and target remain alive. Events are handled after
+  even if the browser connection and target remain alive. Invalidate the detached
+  session cache so a subsequent operation acquires a new observer. Events are handled after
   the navigation command returns; this does not change a stalled WebDriver call's
   own deadline or introduce automatic navigation retries.
 
@@ -56,6 +57,10 @@ Portable protocol regressions cover document failure/abort, redirect failure,
 observer detach, unrelated events, delayed download and an ambiguous abort followed
 by an error-page load. Shared Core/Legacy tests cover cancellation/timeout mapping,
 cleanup causes, trace bounds/redaction and preservation of primary test failures.
+The held-response cancellation test crosses the CDP send gate with a second
+command before canceling. A server receiving the first request does not guarantee
+that its client-side socket send has finished; canceling that send can legitimately
+abort the connection and invalidate the test's response-wait assumption.
 
 A separate diagnostic harness used Linux headless Chromium and ChromeDriver
 154.0.8037.57, the real `RemoteWebDriver` with `PageLoadStrategy.None`, and a local

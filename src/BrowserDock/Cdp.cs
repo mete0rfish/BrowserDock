@@ -172,9 +172,9 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
             revisions[id] = ++eventRevision;
             targets.TryRemove(id, out _); sessions.TryRemove(id, out _);
         }
-        else if (item.Method == "Target.detachedFromTarget")
+        else if (item.Method is "Target.detachedFromTarget" or "Inspector.detached")
         {
-            var session = item.Parameters.GetProperty("sessionId").GetString();
+            var session = item.Method == "Inspector.detached" ? item.SessionId : item.Parameters.GetProperty("sessionId").GetString();
             foreach (var pair in sessions.Where(x => x.Value == session)) sessions.TryRemove(pair.Key, out _);
         }
         else if (item.Method == "Target.targetCrashed") crashed[item.Parameters.GetProperty("targetId").GetString()!] = 0;
