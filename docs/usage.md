@@ -119,6 +119,11 @@ browser or lease commands. `ElementRef.GetValueAsync` reads the current input
 value; `GetDomAttributeAsync` and the existing `GetAttributeAsync` read the DOM
 content attribute. See [timeouts, context rules and Core/Legacy examples](element-waits.md).
 
+Use `browser.ClickAsync(locator, options, token)` or `lease.Commands.ClickAsync` to
+wait for the first matching element to be displayed and enabled, then click once.
+It shares one deadline and never retries a dispatched click or falls back to a
+JavaScript click. See [guarded clicks](element-clicks.md).
+
 ## Patching and logging
 
 Patching defaults to `Disabled`. `ValidateOnly` checks exact pattern counts for a supported recipe and uses the original binary. `BinaryCompatibility` preserves the original and creates a separate cached copy with a hash manifest. Missing recipes and validation failures fail explicitly rather than silently falling back to the original. `IDriverPatchStrategy` supplies verified version ranges and length-preserving patterns.

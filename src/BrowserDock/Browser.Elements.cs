@@ -19,13 +19,20 @@ public sealed partial class Browser
     public ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => WaitForAbsentForLeaseAsync(locator, options, AttachmentEpoch, () => true, cancellationToken);
 
+    /// <summary>Wait for a displayed, enabled element, then issue one WebDriver click. Never retries a dispatched click.</summary>
+    public ValueTask ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => ClickForLeaseAsync(locator, options, AttachmentEpoch, () => true, cancellationToken);
+
+    internal async ValueTask ClickForLeaseAsync(Locator locator, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
+        => _ = await WaitForElementCoreAsync(locator, wait, ElementCondition.Click, epoch, valid, caller).ConfigureAwait(false);
+
     internal async ValueTask<ElementRef> WaitForElementForLeaseAsync(Locator locator, ElementWaitOptions? wait, bool visible, long epoch, Func<bool> valid, CancellationToken caller)
         => (await WaitForElementCoreAsync(locator, wait, visible ? ElementCondition.Visible : ElementCondition.Exists, epoch, valid, caller).ConfigureAwait(false))!;
 
     internal async ValueTask WaitForAbsentForLeaseAsync(Locator locator, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
         => _ = await WaitForElementCoreAsync(locator, wait, ElementCondition.Absent, epoch, valid, caller).ConfigureAwait(false);
 
-    private enum ElementCondition { Exists, Visible, Absent }
+    private enum ElementCondition { Exists, Visible, Absent, Click }
     private async ValueTask<ElementRef?> WaitForElementCoreAsync(Locator locator, ElementWaitOptions? wait, ElementCondition condition, long epoch, Func<bool> valid, CancellationToken caller)
     {
         ElementWaitOptions.ValidateLocator(locator);
@@ -35,13 +42,14 @@ public sealed partial class Browser
         var id = Guid.NewGuid();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token);
         using var deadline = new Deadline(captured.Timeout, linked.Token);
+        var deadlineToken = deadline.Token;
         var clock = Stopwatch.StartNew();
         try
         {
             while (true)
             {
                 CheckDeadline();
-                var observation = await CommandAsync<(bool Satisfied, ElementRef? Element)>(epoch, valid, driver =>
+                var observation = await CommandAsync<(bool Satisfied, ElementRef? Element)>(epoch, valid, (driver, commandToken) =>
                 {
                     target ??= cdp!.Resolve().Key;
                     try { RestoreElementContext(driver, target.Value, captured.FramePath); }
@@ -51,18 +59,36 @@ public sealed partial class Browser
                         // the requested element is absent in its intended context.
                         return (Satisfied: false, Element: (ElementRef?)null);
                     }
+                    IWebElement element;
+                    string? elementId;
                     try
                     {
-                        var element = driver.FindElement(Attachment.By(locator));
-                        var elementId = attachment!.Executor.LastFoundElementId
+                        element = driver.FindElement(Attachment.By(locator));
+                        elementId = attachment!.Executor.LastFoundElementId
                             ?? throw new BrowserDockException(ErrorCategory.ProtocolError, "W3C find-element response did not contain an element reference.");
-                        if (condition == ElementCondition.Absent || (condition == ElementCondition.Visible && !element.Displayed))
+                        if (condition == ElementCondition.Absent ||
+                            (condition is ElementCondition.Visible or ElementCondition.Click && !element.Displayed) ||
+                            (condition == ElementCondition.Click && !element.Enabled))
                             return (false, (ElementRef?)null);
-                        return (true, (ElementRef?)new ElementRef(this, elementId, locator, find, target.Value, SessionGeneration, epoch));
                     }
                     catch (NoSuchElementException) { return (condition == ElementCondition.Absent, (ElementRef?)null); }
                     catch (StaleElementReferenceException) { return (false, (ElementRef?)null); }
-                }, caller, deadline.Token).ConfigureAwait(false);
+                    if (condition == ElementCondition.Click)
+                    {
+                        CheckDeadline();
+                        if (!valid() || AttachmentEpoch != epoch || State != BrowserState.WebDriverAttached)
+                            throw new StaleAttachmentException();
+                        // Keep lookup, readiness and click in the same command gate.
+                        // The side effect is deliberately outside the observation
+                        // retry catches, including stale/intercepted click errors.
+                        // The per-command budget may expire before the overall
+                        // wait budget, while executor cleanup is still pending.
+                        commandToken.ThrowIfCancellationRequested();
+                        element.Click();
+                        return (true, (ElementRef?)null);
+                    }
+                    return (true, (ElementRef?)new ElementRef(this, elementId, locator, find, target.Value, SessionGeneration, epoch));
+                }, caller, deadlineToken).ConfigureAwait(false);
                 CheckDeadline();
                 if (!valid() || AttachmentEpoch != epoch || State != BrowserState.WebDriverAttached)
                     throw new StaleAttachmentException { OperationId = id, Diagnostic = Health };
@@ -72,8 +98,8 @@ public sealed partial class Browser
                 // The shared deadline bounds this delay. Clipping a TimeSpan to
                 // its remaining fraction of a millisecond can round down to zero
                 // in Task.Delay and dispatch extra polls just before expiry.
-                await StageAsync("element-wait-poll", deadline.Token).ConfigureAwait(false);
-                await Task.Delay(captured.PollInterval, deadline.Token).ConfigureAwait(false);
+                await StageAsync("element-wait-poll", deadlineToken).ConfigureAwait(false);
+                await Task.Delay(captured.PollInterval, deadlineToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException original)
@@ -108,8 +134,8 @@ public sealed partial class Browser
 
         void CheckDeadline()
         {
-            deadline.Token.ThrowIfCancellationRequested();
-            if (clock.Elapsed >= captured.Timeout) throw new OperationCanceledException(deadline.Token);
+            deadlineToken.ThrowIfCancellationRequested();
+            if (clock.Elapsed >= captured.Timeout) throw new OperationCanceledException(deadlineToken);
         }
     }
 }

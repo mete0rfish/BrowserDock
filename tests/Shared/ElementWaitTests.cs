@@ -123,13 +123,14 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task QueuedTimeoutUsesWaitBudgetAndDoesNotInvalidateAttachment(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task QueuedTimeoutUsesWaitBudgetAndDoesNotInvalidateAttachment(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         await fixture.Core.Browser.CommandsGateForTest.WaitAsync();
         try
         {
-            var error = await Catch(fixture.Wait("exists", legacy, options: WaitOptions with { Timeout = TimeSpan.FromMilliseconds(200) }));
+            var error = await Catch(fixture.Wait(kind, legacy, options: WaitOptions with { Timeout = TimeSpan.FromMilliseconds(200) }));
             Assert.That(Category(error), Is.EqualTo(ErrorCategory.OperationTimedOut));
             Assert.That(CoreError(error).OperationId, Is.Not.EqualTo(Guid.Empty));
             Assert.That(CoreError(error).Diagnostic, Is.Not.Null);
@@ -142,14 +143,15 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task QueuedCancellationPreservesCallerToken(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task QueuedCancellationPreservesCallerToken(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         using var caller = new CancellationTokenSource();
         await fixture.Core.Browser.CommandsGateForTest.WaitAsync();
         try
         {
-            var pending = fixture.Wait("exists", legacy, token: caller.Token); caller.Cancel();
+            var pending = fixture.Wait(kind, legacy, token: caller.Token); caller.Cancel();
             var error = (OperationCanceledException)await Catch(pending);
             Assert.That(error.CancellationToken, Is.EqualTo(caller.Token));
             Assert.That(error.Data["OperationId"], Is.Not.EqualTo(Guid.Empty));
@@ -160,7 +162,8 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task PollDelayReleasesGateAndRetainsOneDeadline(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task PollDelayReleasesGateAndRetainsOneDeadline(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         var observed = Signal();
@@ -169,7 +172,7 @@ public sealed class ElementWaitTests
             if (command.Name == DriverCommand.FindElement) { observed.TrySetResult(true); throw new NoSuchElementException(); }
             return Reply("fixture");
         };
-        var pending = fixture.Wait("exists", legacy, options: WaitOptions with { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(10) });
+        var pending = fixture.Wait(kind, legacy, options: WaitOptions with { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(10) });
         await Bounded(observed.Task);
         Assert.That(await Bounded(fixture.Core.Lease.Commands.GetTitleAsync().AsTask()), Is.EqualTo("fixture"));
         Assert.That(Category(await Catch(pending)), Is.EqualTo(ErrorCategory.OperationTimedOut));
@@ -178,7 +181,8 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task InFlightCancellationRetainsCallerTokenAndCommandRecovery(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task InFlightCancellationRetainsCallerTokenAndCommandRecovery(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         var entered = Signal(); var release = Signal();
@@ -190,7 +194,7 @@ public sealed class ElementWaitTests
         using var caller = new CancellationTokenSource();
         try
         {
-            var pending = fixture.Wait("exists", legacy, token: caller.Token);
+            var pending = fixture.Wait(kind, legacy, token: caller.Token);
             await Bounded(entered.Task); caller.Cancel();
             var error = (OperationCanceledException)await Catch(pending);
             Assert.That(error.CancellationToken, Is.EqualTo(caller.Token));
@@ -202,7 +206,8 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task DisposedLeaseIsNotRetriedAgainstAnotherLease(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task DisposedLeaseIsNotRetriedAgainstAnotherLease(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         var finds = 0;
@@ -212,7 +217,7 @@ public sealed class ElementWaitTests
             { finds++; fixture.Core.Lease.DisposeAsync().GetAwaiter().GetResult(); throw new NoSuchElementException(); }
             return Reply(null);
         };
-        Assert.That(Category(await Catch(fixture.Wait("exists", legacy, true))), Is.EqualTo(ErrorCategory.StaleAttachment));
+        Assert.That(Category(await Catch(fixture.Wait(kind, legacy, true))), Is.EqualTo(ErrorCategory.StaleAttachment));
         Assert.That(finds, Is.EqualTo(1));
         Assert.That(fixture.Core.Executor.Disposals, Is.Zero);
     }
@@ -300,7 +305,8 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task ReplacementBetweenPollsCannotCompleteTheOriginalWait(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task ReplacementBetweenPollsCannotCompleteTheOriginalWait(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         var replacement = await fixture.Core.AddAttachmentAsync();
@@ -310,13 +316,14 @@ public sealed class ElementWaitTests
             { fixture.Core.Browser.ReplaceAttachmentForTest(replacement.Attachment); throw new NoSuchElementException(); }
             return Reply(null);
         };
-        Assert.That(Category(await Catch(fixture.Wait("exists", legacy))), Is.EqualTo(ErrorCategory.StaleAttachment));
+        Assert.That(Category(await Catch(fixture.Wait(kind, legacy))), Is.EqualTo(ErrorCategory.StaleAttachment));
         Assert.That(replacement.Executor.Commands, Is.Zero);
         Assert.That(replacement.Executor.Disposals, Is.Zero);
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task PollingCancellationPreservesTokenWithoutInvalidatingAttachment(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task PollingCancellationPreservesTokenWithoutInvalidatingAttachment(bool legacy, string kind = "exists")
     {
         await using var fixture = await Fixture.StartAsync();
         var observed = Signal();
@@ -326,7 +333,7 @@ public sealed class ElementWaitTests
             return Reply("fixture");
         };
         using var caller = new CancellationTokenSource();
-        var pending = fixture.Wait("exists", legacy, options: WaitOptions with { PollInterval = TimeSpan.FromSeconds(10) }, token: caller.Token);
+        var pending = fixture.Wait(kind, legacy, options: WaitOptions with { PollInterval = TimeSpan.FromSeconds(10) }, token: caller.Token);
         await Bounded(observed.Task);
         // The follow-up command acquires the gate after the completed observation.
         await Bounded(fixture.Core.Lease.Commands.GetTitleAsync().AsTask());
@@ -393,7 +400,8 @@ public sealed class ElementWaitTests
     }
 
     [TestCase(false), TestCase(true)]
-    public async Task InFlightWaitTimeoutRetainsDeadlineReasonDuringCleanup(bool legacy)
+    [TestCase(false, "click"), TestCase(true, "click")]
+    public async Task InFlightWaitTimeoutRetainsDeadlineReasonDuringCleanup(bool legacy, string kind = "exists")
     {
         var recovering = Signal(); var releaseRecovery = Signal(); var entered = Signal(); var release = Signal();
         await using var fixture = await Fixture.StartAsync(async (stage, token) =>
@@ -408,7 +416,7 @@ public sealed class ElementWaitTests
         using var caller = new CancellationTokenSource();
         try
         {
-            var pending = fixture.Wait("exists", legacy, options: WaitOptions with { Timeout = TimeSpan.FromSeconds(1) }, token: caller.Token);
+            var pending = fixture.Wait(kind, legacy, options: WaitOptions with { Timeout = TimeSpan.FromSeconds(1) }, token: caller.Token);
             await Bounded(entered.Task); await Bounded(recovering.Task);
             caller.Cancel(); releaseRecovery.TrySetResult(true);
             Assert.That(Category(await Catch(pending)), Is.EqualTo(ErrorCategory.OperationTimedOut));
@@ -455,7 +463,7 @@ public sealed class ElementWaitTests
     private static BrowserDockException CoreError(Exception error) => error is Legacy.BrowserDockException ? (BrowserDockException)error.InnerException! : (BrowserDockException)error;
     private static ErrorCategory Category(Exception error) => CoreError(error).Category;
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         private readonly FixtureServer server;
         public CommandFixture Core { get; }
@@ -466,14 +474,14 @@ public sealed class ElementWaitTests
             this.server = server; Core = core;
             core.Executor.Command = command => { Commands.Enqueue(command); return OnCommand(command); };
         }
-        public static async Task<Fixture> StartAsync(Func<string, CancellationToken, ValueTask>? stage = null)
+        public static async Task<Fixture> StartAsync(Func<string, CancellationToken, ValueTask>? stage = null, TimeSpan? commandBudget = null)
         {
             var server = await FixtureServer.StartAsync();
             CommandFixture? core = null;
             var controller = new CdpController(new UriBuilder(server.Url) { Scheme = "ws", Path = "/cdp" }.Uri, []);
             try
             {
-                core = await CommandFixture.StartAsync(stage: stage);
+                core = await CommandFixture.StartAsync(commandBudget: commandBudget, stage: stage);
                 using var deadline = new CancellationTokenSource(Watchdog);
                 await controller.InitializeAsync(deadline.Token);
                 core.Browser.BindElementTargetForTest(controller, controller.Controlled!.Value, "window");
@@ -492,6 +500,8 @@ public sealed class ElementWaitTests
                     Target = options.Target is { } target ? new Legacy.TargetKey(target.Value) : null,
                     FramePath = options.FramePath.Select(Legacy.Locator.FromCore).ToArray() };
                 var locator = Legacy.Locator.Id("subject");
+                if (kind == "click")
+                { await (lease ? commands.ClickAsync(locator, snapshot, token) : browser.ClickAsync(locator, snapshot, token)); return ""; }
                 if (kind == "absent")
                 { await (lease ? commands.WaitForAbsentAsync(locator, snapshot, token) : browser.WaitForAbsentAsync(locator, snapshot, token)); return ""; }
                 var element = await (kind == "visible"
@@ -502,6 +512,8 @@ public sealed class ElementWaitTests
             else
             {
                 var browser = Core.Browser; var commands = Core.Lease.Commands; var locator = Locator.Id("subject");
+                if (kind == "click")
+                { await (lease ? commands.ClickAsync(locator, options, token) : browser.ClickAsync(locator, options, token)); return ""; }
                 if (kind == "absent")
                 { await (lease ? commands.WaitForAbsentAsync(locator, options, token) : browser.WaitForAbsentAsync(locator, options, token)); return ""; }
                 var element = await (kind == "visible"

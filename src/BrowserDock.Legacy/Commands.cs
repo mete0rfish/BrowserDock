@@ -12,6 +12,7 @@ public interface IBrowserCommands
     Task<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<BrowserCookie>> GetCookiesAsync(CancellationToken cancellationToken = default);
     Task AddCookieAsync(BrowserCookie cookie, CancellationToken cancellationToken = default);
@@ -43,6 +44,12 @@ internal sealed class GuardedCommands(Core.IBrowserCommands inner) : IBrowserCom
         if (locator is null) throw new ArgumentNullException(nameof(locator));
         var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
         return Api.Call(async () => new ElementRef(await inner.WaitForVisibleAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
+    }
+    public Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.ClickAsync(coreLocator, snapshot, cancellationToken).AsTask());
     }
     public Task WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
     {
