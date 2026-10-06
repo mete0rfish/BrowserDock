@@ -25,8 +25,8 @@ internal static class Program
             try
             {
                 Console.WriteLine(await first.Commands.GetTitleAsync());
-                var body = await first.Commands.FindAsync(Locator.Css("body"));
-                Console.WriteLine(await body.IsDisplayedAsync());
+                var body = await first.Commands.WaitForVisibleAsync(Locator.Css("body"), new ElementWaitOptions { Timeout = TimeSpan.FromSeconds(10) });
+                Console.WriteLine(await body.GetDomPropertyAsync("tagName"));
                 await browser.DisconnectWebDriverAsync();
                 var next = await browser.ReconnectWebDriverAsync();
                 try

@@ -40,6 +40,24 @@ public sealed class Browser
         var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
         return Api.Call(async () => new ElementRef(await inner.FindAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
     }
+    public Task<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(async () => new ElementRef(await inner.WaitForExistsAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
+    }
+    public Task<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(async () => new ElementRef(await inner.WaitForVisibleAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
+    }
+    public Task WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.WaitForAbsentAsync(coreLocator, snapshot, cancellationToken).AsTask());
+    }
     public Task<JsonElement> ExecuteCdpAsync(string method, object? parameters = null, TargetKey? target = null, CancellationToken cancellationToken = default)
     {
         // Clone arbitrary caller-owned parameter objects before asynchronous work starts.
@@ -74,5 +92,8 @@ public sealed class ElementRef
     public Task SendKeysAsync(string text, CancellationToken cancellationToken = default) => Api.Call(() => inner.SendKeysAsync(text, cancellationToken).AsTask());
     public Task<string> GetTextAsync(CancellationToken cancellationToken = default) => Api.Call(() => inner.GetTextAsync(cancellationToken).AsTask());
     public Task<string?> GetAttributeAsync(string name, CancellationToken cancellationToken = default) => Api.Call(() => inner.GetAttributeAsync(name, cancellationToken).AsTask());
+    public Task<string?> GetDomAttributeAsync(string name, CancellationToken cancellationToken = default) => Api.Call(() => inner.GetDomAttributeAsync(name, cancellationToken).AsTask());
+    public Task<string?> GetDomPropertyAsync(string name, CancellationToken cancellationToken = default) => Api.Call(() => inner.GetDomPropertyAsync(name, cancellationToken).AsTask());
+    public Task<string?> GetValueAsync(CancellationToken cancellationToken = default) => Api.Call(() => inner.GetValueAsync(cancellationToken).AsTask());
     public Task<bool> IsDisplayedAsync(CancellationToken cancellationToken = default) => Api.Call(() => inner.IsDisplayedAsync(cancellationToken).AsTask());
 }

@@ -541,7 +541,7 @@ public sealed class CommandDeadlineTests
         }
     }
 
-    private sealed class CommandFixture : IAsyncDisposable
+    internal sealed class CommandFixture : IAsyncDisposable
     {
         private readonly List<Attachment> owned = new();
         public Browser Browser { get; }
@@ -612,7 +612,7 @@ public sealed class CommandDeadlineTests
         }
     }
 
-    private sealed class MemoryExecutor : ICommandExecutor
+    internal sealed class MemoryExecutor : ICommandExecutor
     {
         private int commands, disposals, disposeCalls;
         public int Commands => Volatile.Read(ref commands);
@@ -622,6 +622,7 @@ public sealed class CommandDeadlineTests
         public Action? DisposeHook { get; set; }
         public Func<Task<string>> Title { get; set; } = () => Task.FromResult("fixture");
         public Func<Command, Response>? Cdp { get; set; }
+        public Func<Command, Response>? Command { get; set; }
         public int CdpCommandsAdded { get; private set; }
         public bool TryAddCommand(string name, CommandInfo? info)
         {
@@ -635,6 +636,7 @@ public sealed class CommandDeadlineTests
                 return new Response("fixture-session", new Dictionary<string, object> { ["browserName"] = "chrome", ["browserVersion"] = "150.0.1.0", ["platformName"] = "fixture" }, WebDriverResult.Success);
             Interlocked.Increment(ref commands);
             if (command.Name == "browserDockCdp") return Cdp!(command);
+            if (Command is not null) return Command(command);
             return new Response(command.SessionId?.ToString(), Title().GetAwaiter().GetResult(), WebDriverResult.Success);
         }
         public Task<Response> ExecuteAsync(Command command) => Task.FromResult(Execute(command));

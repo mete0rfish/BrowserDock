@@ -34,6 +34,11 @@ public sealed partial class Browser : IAsyncDisposable
     internal SemaphoreSlim CommandsGateForTest => commands;
     internal SemaphoreSlim LifecycleGateForTest => lifecycle;
     internal WebDriverLease LeaseForTest() => NewLease();
+    internal void BindElementTargetForTest(CdpController controller, TargetKey target, string handle)
+    {
+        cdp = controller;
+        lock (windows) windows[target] = handle;
+    }
     internal void ReplaceAttachmentForTest(Attachment replacement)
     {
         lock (attachmentSync) { _ = admission.Close(); PublishAttachment(replacement); OpenAttachment(); }
@@ -467,10 +472,10 @@ public sealed partial class Browser : IAsyncDisposable
             }
             return await cdp!.PageAsync(method, parameters, target, token).ConfigureAwait(false);
         }, options.Timeouts.Command, cancellationToken);
-    internal async ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, T> action, CancellationToken caller)
+    internal async ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, T> action, CancellationToken caller, CancellationToken operationDeadline = default)
     {
         var id = Guid.NewGuid();
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token, operationDeadline);
         using var deadline = new Deadline(options.Timeouts.Command, linked.Token);
         var acquired = false;
         var execution = new Attachment.CommandExecution();

@@ -9,6 +9,8 @@
     <Compile Include="../Shared/HttpRequestTrace.cs" Link="Fixtures/HttpRequestTrace.cs" />
     <Compile Include="../Shared/FailureEvidence.cs" Link="Fixtures/FailureEvidence.cs" />
     <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
+    <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />
+    <Compile Include="../Shared/ElementWaitBrowserTests.cs" Link="ElementWaitBrowserTests.cs" />
     <Compile Include="../Shared/StartupSnapshotTests.cs" Link="StartupSnapshotTests.cs" />
     <Compile Include="../Shared/OptionsCaptureTests.cs" Link="OptionsCaptureTests.cs" />
     <Compile Include="../Shared/NavigationOptionsTests.cs" Link="NavigationOptionsTests.cs" />

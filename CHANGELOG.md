@@ -6,6 +6,12 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Added
 
+- Core/Legacy element existence, visibility and absence waits with one overall
+  deadline, explicit target/frame context, cancellation and bounded observation
+  retries (#32, partial). Add DOM attribute/property and live-value reads; keep
+  `GetAttributeAsync` as a DOM-attribute alias. `IBrowserCommands` implementers
+  must add the three new wait members. See [element waits](docs/element-waits.md).
+
 - Optional, versioned UC launch/script profile in Core and Legacy (#30): immutable
   resolved settings, language/CDC conflicts, explicit patch requirements, ordered
   document scripts and redacted effective-policy information. Profile mode refreshes

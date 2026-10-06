@@ -98,6 +98,23 @@ public sealed class FindOptions
         Target = Target?.ToCore(), FramePath = FramePath.Select(x => x.ToCore()).ToArray(), ReacquireOnSessionChange = ReacquireOnSessionChange
     };
 }
+/// <summary>Mutable options captured when a wait is called.</summary>
+public sealed class ElementWaitOptions
+{
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromMilliseconds(100);
+    public TargetKey? Target { get; set; }
+    public IList<Locator> FramePath { get; set; } = new List<Locator>();
+    internal Core.ElementWaitOptions Snapshot()
+    {
+        if (FramePath is null) throw new ArgumentNullException(nameof(FramePath));
+        return new()
+        {
+            Timeout = Timeout, PollInterval = PollInterval, Target = Target?.ToCore(),
+            FramePath = FramePath.Select(x => x is null ? throw new ArgumentNullException(nameof(FramePath)) : x.ToCore()).ToArray()
+        };
+    }
+}
 public sealed class ShutdownOptions { }
 public sealed class BrowserCookie
 {

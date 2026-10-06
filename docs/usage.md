@@ -112,6 +112,13 @@ await browser.NavigateAsync(url, new BrowserDock.Legacy.NavigationOptions
 To stay disconnected, set `ReconnectAfterNavigation=false` and leave
 `ReconnectDelay` null. Neither mode silently ignores a requested reconnect or hold.
 
+## Element waits and values
+
+Use `WaitForExistsAsync`, `WaitForVisibleAsync` and `WaitForAbsentAsync` on the
+browser or lease commands. `ElementRef.GetValueAsync` reads the current input
+value; `GetDomAttributeAsync` and the existing `GetAttributeAsync` read the DOM
+content attribute. See [timeouts, context rules and Core/Legacy examples](element-waits.md).
+
 ## Patching and logging
 
 Patching defaults to `Disabled`. `ValidateOnly` checks exact pattern counts for a supported recipe and uses the original binary. `BinaryCompatibility` preserves the original and creates a separate cached copy with a hash manifest. Missing recipes and validation failures fail explicitly rather than silently falling back to the original. `IDriverPatchStrategy` supplies verified version ranges and length-preserving patterns.
