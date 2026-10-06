@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.Text.Json;
 using Legacy = BrowserDock.Legacy;
 
 namespace BrowserDock.Tests;
@@ -25,6 +26,7 @@ public sealed class NavigationDiagnosticsTests
                     original = error;
                     error.Data["Navigation.Stage"] = "navigation-events";
                     error.Data["Navigation.SessionId"] = "fixture-session";
+                    error.Data["Navigation.Trace"] = "fixture-trace";
                     throw new NavigationCanceledException(caller.Token, true, error);
                 }
             }
@@ -36,6 +38,7 @@ public sealed class NavigationDiagnosticsTests
         Assert.That(original, Is.Not.Null);
         Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("navigation-events"));
         Assert.That(error.Data["Navigation.SessionId"], Is.EqualTo("fixture-session"));
+        Assert.That(error.Data["Navigation.Trace"], Is.EqualTo("fixture-trace"));
         var core = legacy ? error.InnerException! : error;
         NavigationCanceledException cancellation;
         if (timeout)
@@ -70,5 +73,53 @@ public sealed class NavigationDiagnosticsTests
         Assert.That(error.InnerException, Is.SameAs(original));
         Assert.That(error.Data["Navigation.Stage"], Is.EqualTo("Page.navigate"));
         Assert.That(error.Data["Navigation.CdpErrorText"], Is.EqualTo("net::ERR_ABORTED"));
+    }
+
+    [TestCase(false), TestCase(true)]
+    public void CleanupFailureKeepsItsCauseAndTraceAcrossFacades(bool legacy)
+    {
+        var original = new IOException("injected cleanup failure");
+        var browser = Browser.NavigationFixtureForTest(new()
+        {
+            Driver = new() { ExecutablePath = "unused" },
+            StageHook = (stage, _) => stage == "cleanup" ? throw original : default
+        }, BrowserState.CdpOnly);
+        var error = Assert.CatchAsync<Exception>(async () =>
+        {
+            if (legacy) await new Legacy.Browser(browser).StopAsync();
+            else await browser.StopAsync();
+        })!;
+        var core = (BrowserDockException)(legacy ? error.InnerException! : error);
+        Assert.That(core.Category, Is.EqualTo(ErrorCategory.CleanupIncomplete));
+        Assert.That(((AggregateException)core.InnerException!).InnerExceptions, Does.Contain(original));
+        Assert.That(error.Data["Cleanup.Trace"], Is.EqualTo(core.Data["Cleanup.Trace"]));
+        using var trace = JsonDocument.Parse((string)error.Data["Cleanup.Trace"]!);
+        Assert.That(trace.RootElement.EnumerateArray().Select(x => x.GetProperty("event").GetString()),
+            Does.Contain("cleanup-start").And.Contain("cleanup-failed"));
+    }
+
+    [Test]
+    public void DiagnosticTraceIsBoundedAndExcludesProtocolPayloads()
+    {
+        var trace = new BoundedDiagnosticTrace();
+        using var parameters = JsonDocument.Parse("{\"requestId\":\"request\",\"url\":\"secret-url\",\"headers\":{\"Authorization\":\"secret-header\"},\"postData\":\"secret-body\",\"expression\":\"secret-script\"}");
+        for (var i = 0; i < 100; i++) trace.Cdp("Network.requestWillBeSent", new string('s', 200), parameters.RootElement);
+        trace.Add("last");
+        var snapshot = trace.Snapshot();
+        using var json = JsonDocument.Parse(snapshot);
+        Assert.That(json.RootElement.GetArrayLength(), Is.EqualTo(64));
+        Assert.That(json.RootElement[0].GetProperty("session").GetString()!.Length, Is.EqualTo(128));
+        Assert.That(json.RootElement[63].GetProperty("event").GetString(), Is.EqualTo("last"));
+        Assert.That(snapshot, Does.Not.Contain("secret-"));
+    }
+
+    [Test]
+    public void TestCleanupRetainsPrimaryFailureAndStillFailsWhenThereIsNoPrimaryFailure()
+    {
+        var absent = Path.Combine(Path.GetTempPath(), "BrowserDock-absent-" + Guid.NewGuid().ToString("N"));
+        var primary = new InvalidOperationException("primary failure");
+        Assert.DoesNotThrow(() => TestFixtures.FailureEvidence.DeleteDirectory(absent, primary));
+        Assert.That(primary.Data["TestCleanupFailure"], Is.InstanceOf<DirectoryNotFoundException>());
+        Assert.Throws<DirectoryNotFoundException>(() => TestFixtures.FailureEvidence.DeleteDirectory(absent, null));
     }
 }

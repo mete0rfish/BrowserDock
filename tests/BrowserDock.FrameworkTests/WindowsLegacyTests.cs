@@ -26,7 +26,7 @@ public sealed class WindowsLegacyTests
         var browser = await Legacy.Browser.StartAsync(options);
         try
         {
-            await browser.NavigateAsync(new Uri(server.Url, "/page"));
+            await TestFixtures.FailureEvidence.CaptureAsync(() => browser.NavigateAsync(new Uri(server.Url, "/page")));
             var old = await browser.GetWebDriverAsync();
             try
             {
@@ -72,9 +72,9 @@ public sealed class WindowsLegacyTests
         var browser = await Legacy.Browser.StartAsync(options);
         try
         {
-            var result = await browser.NavigateAsync(new Uri(server.Url, "/redirect"), new() { Mode = Legacy.NavigationMode.Detached, WaitUntil = until });
+            var result = await TestFixtures.FailureEvidence.CaptureAsync(() => browser.NavigateAsync(new Uri(server.Url, "/redirect"), new() { Mode = Legacy.NavigationMode.Detached, WaitUntil = until }));
             Assert.That(result.FinalUrl.AbsolutePath, Is.EqualTo("/page"));
-            var same = await browser.NavigateAsync(new Uri(server.Url, "/page#anchor"), new() { Mode = Legacy.NavigationMode.CdpOnly, WaitUntil = until });
+            var same = await TestFixtures.FailureEvidence.CaptureAsync(() => browser.NavigateAsync(new Uri(server.Url, "/page#anchor"), new() { Mode = Legacy.NavigationMode.CdpOnly, WaitUntil = until }));
             Assert.That(same.FinalUrl.Fragment, Is.EqualTo("#anchor"));
             Assert.That(browser.State, Is.EqualTo(Legacy.BrowserState.CdpOnly));
         }

@@ -174,13 +174,17 @@ public sealed partial class WindowsTests
     {
         using var cancellation = new CancellationTokenSource();
         var root = TestPaths.NewDirectory();
+        Exception? primary = null;
         try
         {
             var configured = options with { Profile = new() { Directory = root }, StageHook = (name, token) => { if (name == stage) { cancellation.Cancel(); token.ThrowIfCancellationRequested(); } return ValueTask.CompletedTask; } };
-            Assert.ThrowsAsync<OperationCanceledException>(async () => await Browser.StartAsync(configured, cancellation.Token));
+            var error = Assert.ThrowsAsync<OperationCanceledException>(async () => await Browser.StartAsync(configured, cancellation.Token))!;
+            TestFixtures.FailureEvidence.Write(error);
+            Assert.That(error.Data["CleanupFailure"], Is.Null, "Startup cancellation left an incomplete rollback.");
             using var unlocked = Hosting.Profile.Acquire(new() { Directory = root });
         }
-        finally { Directory.Delete(root, true); }
+        catch (Exception error) { primary = error; throw; }
+        finally { TestFixtures.FailureEvidence.DeleteDirectory(root, primary); }
     }
     [Test]
     public async Task AC06_DriverCrashAndChromeCrashHaveSeparateOutcomes()

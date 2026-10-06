@@ -626,19 +626,35 @@ public sealed partial class Browser : IAsyncDisposable
     private async Task StopCoreAsync()
     {
         var failures = new List<string>();
+        var trace = new BoundedDiagnosticTrace();
+        var causes = new List<Exception>();
+        void ObserveCleanup(string stage)
+        {
+            try { trace.Add(stage, ("chromePid", chrome?.Id.ToString()), ("chromeAlive", chrome?.Alive.ToString()),
+                ("ownedTreeAlive", chrome?.TreeAlive.ToString()), ("driverPid", attachment?.Process.Id.ToString()),
+                ("driverAlive", attachment?.Process.Alive.ToString()), ("cdpHealthy", cdp?.Healthy.ToString())); }
+            catch (Exception error) { trace.Add(stage, ("snapshotError", error.GetType().Name)); }
+        }
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var held = false;
         try
         {
+            ObserveCleanup("cleanup-start");
             await lifecycle.WaitAsync(cleanup.Token).ConfigureAwait(false); held = true;
             SetState(BrowserState.Disposing);
             try { await StageAsync("cleanup", cleanup.Token).ConfigureAwait(false); }
-            catch (Exception e) { failures.Add($"cleanup observer: {e.GetType().Name}"); }
+            catch (Exception e) { failures.Add($"cleanup observer: {e.GetType().Name}"); causes.Add(e); }
             var drained = admission.Close();
             async Task Step(string name, Func<CancellationToken, Task> action, TimeSpan? limit = null)
             {
+                ObserveCleanup(name + "-start");
                 try { using var deadline = new Deadline(limit ?? TimeSpan.FromSeconds(10), cleanup.Token); await action(deadline.Token).ConfigureAwait(false); }
-                catch (Exception e) { failures.Add($"{name}: {e.GetType().Name}"); }
+                catch (Exception e)
+                {
+                    failures.Add($"{name}: {e.GetType().Name}"); causes.Add(e);
+                    trace.Add(name + "-failed", ("exception", e.GetType().Name), ("hresult", e.HResult.ToString()));
+                }
+                finally { ObserveCleanup(name + "-end"); }
             }
             await Step("command drain", ct => drained.WaitAsync(ct), this.options.Timeouts.DisconnectDrain).ConfigureAwait(false);
             if (attachment is not null)
@@ -651,11 +667,12 @@ public sealed partial class Browser : IAsyncDisposable
                 {
                     try
                     {
+                        ObserveCleanup("chrome-graceful-start");
                         using var graceful = new Deadline(this.options.Timeouts.GracefulShutdown, cleanup.Token);
                         try { await cdp.BrowserAsync("Browser.close", null, graceful.Token).ConfigureAwait(false); } catch (BrowserDockException) { /* Browser.close may close the socket before replying. */ }
                         await chrome.WaitAsync(graceful.Token).ConfigureAwait(false);
                     }
-                    catch (OperationCanceledException) { diagnostics.Write(1030, "Graceful Chrome shutdown timed out; terminating the owned job."); }
+                    catch (OperationCanceledException) { trace.Add("chrome-graceful-timeout"); diagnostics.Write(1030, "Graceful Chrome shutdown timed out; terminating the owned job."); }
                 }
                 await Step("chrome", async ct => { chrome.Terminate(); await chrome.WaitAsync(ct).ConfigureAwait(false); }, this.options.Timeouts.ForceKillWait).ConfigureAwait(false);
             }
@@ -668,7 +685,7 @@ public sealed partial class Browser : IAsyncDisposable
             }
             await Step("diagnostics", async ct => await diagnostics.DisposeAsync().AsTask().WaitAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
         }
-        catch (Exception e) { failures.Add($"cleanup deadline: {e.GetType().Name}"); }
+        catch (Exception e) { failures.Add($"cleanup deadline: {e.GetType().Name}"); causes.Add(e); }
         finally
         {
             lock (attachmentSync)
@@ -678,7 +695,13 @@ public sealed partial class Browser : IAsyncDisposable
             }
             if (held) lifecycle.Release();
         }
-        if (failures.Count > 0) throw new BrowserDockException(ErrorCategory.CleanupIncomplete, "Browser cleanup was incomplete.") { Diagnostic = Health, CleanupFailures = cleanupFailures };
+        if (failures.Count > 0)
+        {
+            ObserveCleanup("cleanup-failed");
+            var error = new BrowserDockException(ErrorCategory.CleanupIncomplete, "Browser cleanup was incomplete.", new AggregateException(causes)) { Diagnostic = Health, CleanupFailures = cleanupFailures };
+            error.Data["Cleanup.Trace"] = trace.Snapshot();
+            throw error;
+        }
     }
     public ValueTask DisposeAsync() => StopAsync();
 }

@@ -65,12 +65,25 @@ internal sealed class Profile : IDisposable
         using var marker = JsonDocument.Parse(await RuntimeCompatibility.ReadAllTextAsync(System.IO.Path.Combine(Path, Marker), token).ConfigureAwait(false));
         if (marker.RootElement.GetProperty("Schema").GetInt32() != 1 || marker.RootElement.GetProperty("Nonce").GetString() != nonce || marker.RootElement.GetProperty("Path").GetString() != Path)
             throw new BrowserDockException(ErrorCategory.CleanupIncomplete, "Profile ownership marker does not match.");
-        while (true)
+        Exception? lastFailure = null;
+        var attempts = 0;
+        try
         {
-            token.ThrowIfCancellationRequested();
-            try { await Task.Run(() => Directory.Delete(Path, true)).WaitAsync(token).ConfigureAwait(false); return; }
-            catch (IOException) { await Task.Delay(100, token).ConfigureAwait(false); }
-            catch (UnauthorizedAccessException) { await Task.Delay(100, token).ConfigureAwait(false); }
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                attempts++;
+                try { await Task.Run(() => Directory.Delete(Path, true)).WaitAsync(token).ConfigureAwait(false); return; }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                { lastFailure = error; await Task.Delay(100, token).ConfigureAwait(false); }
+            }
+        }
+        catch (OperationCanceledException error) when (lastFailure is not null)
+        {
+            var canceled = new OperationCanceledException("Profile cleanup exhausted its budget after a filesystem failure.", lastFailure, error.CancellationToken);
+            canceled.Data["Cleanup.DeleteAttempts"] = attempts.ToString();
+            canceled.Data["Cleanup.LastDeleteHResult"] = lastFailure.HResult.ToString();
+            throw canceled;
         }
     }
     public void Dispose() { if (!released) { released = true; profileLock.Dispose(); } }

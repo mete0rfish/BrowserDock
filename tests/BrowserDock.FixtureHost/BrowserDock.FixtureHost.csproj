@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Shared/ReferencePages.cs" Link="ReferencePages.cs" />
+    <Compile Include="../Shared/HttpRequestTrace.cs" Link="HttpRequestTrace.cs" />
   </ItemGroup>
 </Project>
