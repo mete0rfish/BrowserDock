@@ -1,12 +1,35 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using NUnit.Framework;
+using Microsoft.AspNetCore.Http;
+using System.Text.Json;
 
 namespace BrowserDock.Tests;
 
 [TestFixture]
 public sealed class DiagnosticsTests
 {
+    [Test]
+    public async Task HttpEvidenceIsBoundedRedactedAndRecordsRequestCancellation()
+    {
+        var trace = new TestFixtures.HttpRequestTrace();
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/page";
+        context.Request.QueryString = new("?secret-query");
+        context.Request.Headers.Authorization = "secret-header";
+        for (var i = 0; i < 40; i++) await trace.InvokeAsync(context, () => Task.CompletedTask);
+        using var canceled = new CancellationTokenSource(); canceled.Cancel();
+        context.RequestAborted = canceled.Token;
+        Assert.CatchAsync<OperationCanceledException>(async () => await trace.InvokeAsync(context, () => Task.FromCanceled(canceled.Token)));
+        var records = trace.Snapshot();
+        Assert.That(records, Has.Length.EqualTo(64));
+        Assert.That(string.Join("", records), Does.Not.Contain("secret-"));
+        using var last = JsonDocument.Parse(records[records.Length - 1]);
+        Assert.That(last.RootElement.GetProperty("phase").GetString(), Is.EqualTo("end"));
+        Assert.That(last.RootElement.GetProperty("canceled").GetBoolean(), Is.True);
+        Assert.That(last.RootElement.GetProperty("exception").GetString(), Is.EqualTo("TaskCanceledException"));
+    }
+
     [Test]
     public async Task BlockedSinkDoesNotBlockWriterAndOverflowIsReportedAfterRelease()
     {

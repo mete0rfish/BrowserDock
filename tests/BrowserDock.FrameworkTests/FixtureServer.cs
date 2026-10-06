@@ -8,10 +8,20 @@ internal sealed class FixtureServer : IDisposable
     private readonly Process process;
     private readonly Task stdout;
     private readonly Task stderr;
+    private readonly Queue<string> httpTrace = new();
     public Uri Url { get; }
     internal Process Process => process;
     private FixtureServer(Process process, Uri url, Task stderr)
-    { this.process = process; Url = url; this.stderr = stderr; stdout = process.StandardOutput.ReadToEndAsync(); }
+    { this.process = process; Url = url; this.stderr = stderr; stdout = DrainOutputAsync(); }
+    private async Task DrainOutputAsync()
+    {
+        string? line;
+        while ((line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false)) is not null)
+        {
+            if (!line.StartsWith("BROWSERDOCK_HTTP_TRACE=", StringComparison.Ordinal)) continue;
+            lock (httpTrace) { if (httpTrace.Count == 64) httpTrace.Dequeue(); httpTrace.Enqueue(line); }
+        }
+    }
     public static async Task<FixtureServer> StartAsync()
     {
         var configured = Environment.GetEnvironmentVariable("BROWSERDOCK_FIXTURE_HOST");
@@ -45,6 +55,7 @@ internal sealed class FixtureServer : IDisposable
         if (!process.HasExited) process.Kill();
         if (!process.WaitForExit(5000)) throw new TimeoutException("Owned fixture host did not exit.");
         if (!Task.WaitAll(new[] { stdout, stderr }, 5000)) throw new TimeoutException("Fixture host pipes did not close.");
+        lock (httpTrace) foreach (var line in httpTrace) TestContext.Out.WriteLine(line);
         process.Dispose();
     }
 }

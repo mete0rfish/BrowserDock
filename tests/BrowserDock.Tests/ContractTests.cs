@@ -93,7 +93,7 @@ public sealed class ContractTests
         using var json = JsonDocument.Parse(stream.ToArray()); return json.RootElement.Clone();
     }
 }
-internal sealed class LocalServer(WebApplication app, Uri url) : IAsyncDisposable
+internal sealed class LocalServer(WebApplication app, Uri url, TestFixtures.HttpRequestTrace trace) : IAsyncDisposable
 {
     public Uri Url { get; } = url;
     public static async Task<LocalServer> StartAsync(RequestDelegate handler)
@@ -101,8 +101,13 @@ internal sealed class LocalServer(WebApplication app, Uri url) : IAsyncDisposabl
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
-        var app = builder.Build(); app.UseWebSockets(); app.Run(handler); await app.StartAsync();
-        return new(app, new Uri(app.Urls.Single()));
+        var trace = new TestFixtures.HttpRequestTrace();
+        var app = builder.Build(); app.UseWebSockets(); app.Use((context, next) => trace.InvokeAsync(context, next)); app.Run(handler); await app.StartAsync();
+        return new(app, new Uri(app.Urls.Single()), trace);
     }
-    public async ValueTask DisposeAsync() { using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3)); await app.StopAsync(deadline.Token); await app.DisposeAsync(); }
+    public async ValueTask DisposeAsync()
+    {
+        try { using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3)); await app.StopAsync(deadline.Token); await app.DisposeAsync(); }
+        finally { foreach (var line in trace.Snapshot()) TestContext.Out.WriteLine(TestFixtures.HttpRequestTrace.Prefix + line); }
+    }
 }

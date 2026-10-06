@@ -9,6 +9,89 @@ namespace BrowserDock.Tests;
 [TestFixture]
 public sealed class NavigationContractTests
 {
+    [TestCase("document-failed", "net::ERR_CONNECTION_RESET")]
+    [TestCase("document-aborted", "net::ERR_ABORTED")]
+    [TestCase("redirect-failed", "net::ERR_CONNECTION_RESET")]
+    public async Task StandardDocumentFailureReturnsItsCauseWithoutWaitingForTheNavigationDeadline(string scenario, string reason)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var error = Assert.ThrowsAsync<BrowserDockException>(async () => await controller.NavigateAsync(new Uri("http://fixture/page"), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = "http://fixture/page" }, null, token); }, deadline.Token));
+        Assert.That(error!.Category, Is.EqualTo(ErrorCategory.ProtocolError));
+        Assert.That(error.Data["Navigation.CdpErrorText"], Is.EqualTo(reason));
+        Assert.That(error.Data["Navigation.DocumentRequestId"], Is.EqualTo("document"));
+        Assert.That(error.Data["Navigation.Trace"], Does.Contain("Network.loadingFailed"));
+        Assert.That(deadline.IsCancellationRequested, Is.False);
+        Assert.That(controller.ResourcesForTest.Pending, Is.Zero);
+        Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+    }
+
+    [TestCase("session-detached"), TestCase("inspector-detached")]
+    public async Task DetachedObserverFailsEvenWhenTheBrowserAndTargetRemainAlive(string scenario)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var error = Assert.ThrowsAsync<BrowserDockException>(async () => await controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, deadline.Token));
+        Assert.That(error!.Category, Is.EqualTo(ErrorCategory.DevToolsEndpointFailure));
+        Assert.That(controller.Healthy, Is.True);
+        Assert.That(controller.Resolve().Id, Is.EqualTo("page"));
+        Assert.That(deadline.IsCancellationRequested, Is.False);
+        Assert.That(controller.ResourcesForTest.Subscribers, Is.EqualTo(1));
+    }
+
+    [TestCase("other-frame-failed"), TestCase("old-loader-failed"), TestCase("other-session-failed"), TestCase("other-session-detached")]
+    public async Task UnrelatedFailuresDoNotAbortTheControlledNavigation(string scenario)
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = scenario;
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var result = await controller.NavigateAsync(new Uri("http://fixture/page"), new(), null, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Completed));
+    }
+
+    [Test]
+    public async Task ResponseAbortWaitsForALaterDownloadEvent()
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = "response-aborted-download";
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(deadline.Token);
+        var result = await controller.NavigateAsync(new Uri("http://fixture/download"), new(),
+            async token => { await controller.PageAsync("Page.navigate", new { url = "http://fixture/download" }, null, token); }, deadline.Token);
+        Assert.That(result.Outcome, Is.EqualTo(NavigationOutcome.Download));
+    }
+
+    [Test]
+    public async Task AmbiguousResponseAbortPreservesCancellationAndTheObservedFailure()
+    {
+        await using var fixture = await ProtocolFixture.StartAsync(); fixture.Scenario = "response-aborted-no-download";
+        await using var controller = new CdpController(fixture.Endpoint, []);
+        using var setup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await controller.InitializeAsync(setup.Token);
+        using var canceled = new CancellationTokenSource();
+        var pending = controller.NavigateAsync(new Uri("http://fixture/download"), new(),
+            async token =>
+            {
+                await controller.PageAsync("Page.navigate", new { url = "http://fixture/download" }, null, token);
+                await fixture.FailureSent.Task.WaitAsync(setup.Token);
+                await controller.BrowserAsync("Browser.getVersion", null, setup.Token);
+                canceled.CancelAfter(TimeSpan.FromSeconds(1));
+            }, canceled.Token);
+        try
+        {
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await pending.WaitAsync(setup.Token))!;
+            Assert.That(error.CancellationToken, Is.EqualTo(canceled.Token));
+            Assert.That(error.Data["Navigation.CdpErrorText"], Is.EqualTo("net::ERR_ABORTED"));
+            Assert.That(error.Data["Navigation.AwaitingDownload"], Is.EqualTo("True"));
+        }
+        finally { canceled.Cancel(); }
+    }
     [TestCase(1), TestCase(3)]
     public async Task InitializationWaitsForInitialPageWithoutCreatingAnother(int emptySnapshots)
     {
@@ -268,6 +351,7 @@ public sealed class NavigationContractTests
         public string? NavigationError;
         public string? HoldMethod;
         public TaskCompletionSource<bool> HeldRequest = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> FailureSent = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public static async Task<ProtocolFixture> StartAsync()
         {
             var fixture = new ProtocolFixture(); fixture.server = await LocalServer.StartAsync(fixture.HandleAsync); return fixture;
@@ -320,6 +404,30 @@ public sealed class NavigationContractTests
                     if (method == "Page.navigate" && NavigationError is not null) continue;
                     if (method == "Page.navigate")
                     {
+                        if (Scenario is "session-detached" or "other-session-detached" or "inspector-detached")
+                        {
+                            if (Scenario == "inspector-detached") await Send(new { method = "Inspector.detached", sessionId = "session-page", @params = new { reason = "fixture-detach" } });
+                            else await Send(new { method = "Target.detachedFromTarget", @params = new { sessionId = Scenario == "session-detached" ? "session-page" : "other-session", targetId = "page" } });
+                            if (Scenario != "other-session-detached") continue;
+                        }
+                        if (Scenario is "document-failed" or "document-aborted" or "redirect-failed" or "other-frame-failed" or "old-loader-failed" or "other-session-failed" or "response-aborted-download" or "response-aborted-no-download")
+                        {
+                            var injectedSession = Scenario == "other-session-failed" ? "other-session" : "session-page";
+                            var injectedFrame = Scenario == "other-frame-failed" ? "child" : "main";
+                            var injectedLoader = Scenario == "old-loader-failed" ? "old-loader" : "new-loader";
+                            await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document" } });
+                            if (Scenario == "redirect-failed") await Send(new { method = "Network.requestWillBeSent", sessionId = injectedSession, @params = new { requestId = "document", loaderId = injectedLoader, frameId = injectedFrame, type = "Document", redirectResponse = new { url = "http://fixture/redirect" } } });
+                            if (Scenario.StartsWith("response-", StringComparison.Ordinal)) await Send(new { method = "Network.responseReceived", sessionId = injectedSession, @params = new { requestId = "document", type = "Document" } });
+                            await Send(new { method = "Network.loadingFailed", sessionId = injectedSession, @params = new { requestId = "document", type = "Document", errorText = Scenario.Contains("aborted", StringComparison.Ordinal) ? "net::ERR_ABORTED" : "net::ERR_CONNECTION_RESET", canceled = true } });
+                            FailureSent.TrySetResult(true);
+                            if (Scenario == "response-aborted-download")
+                            {
+                                await Task.Delay(150, context.RequestAborted);
+                                await Send(new { method = "Browser.downloadWillBegin", @params = new { frameId = "main", guid = "download" } });
+                                continue;
+                            }
+                            if (Scenario is "document-failed" or "document-aborted" or "redirect-failed") continue;
+                        }
                         if (Scenario == "target-closed") { await Send(new { method = "Target.targetDestroyed", @params = new { targetId = "page" } }); continue; }
                         if (Scenario == "same-document") { await Send(new { method = "Page.navigatedWithinDocument", sessionId = "session-page", @params = new { frameId = "main", url = "http://fixture/page" } }); continue; }
                         var loader = OnlyOldLoader ? "old-loader" : "new-loader";

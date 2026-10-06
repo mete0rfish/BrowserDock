@@ -25,6 +25,8 @@ if (driverPort != 0)
     return;
 }
 app.UseWebSockets();
+var httpTrace = new BrowserDock.TestFixtures.HttpRequestTrace(Console.WriteLine);
+app.Use((context, next) => httpTrace.InvokeAsync(context, next));
 app.Map("/reference/{**path}", async (HttpContext context) => { await BrowserDock.TestFixtures.ReferencePages.HandleAsync(context); });
 var requests = new ConcurrentQueue<object>();
 app.MapGet("/control/requests", () => requests.ToArray());

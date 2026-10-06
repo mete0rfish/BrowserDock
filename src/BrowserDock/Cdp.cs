@@ -287,6 +287,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         var observing = false;
         long received = 0;
         string? lastEvent = null;
+        var trace = new BoundedDiagnosticTrace();
         var queue = Channel.CreateBounded<CdpEvent>(new BoundedChannelOptions(2048) { FullMode = BoundedChannelFullMode.Wait });
         var overflow = false;
         void Observe(CdpEvent item)
@@ -295,6 +296,9 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
             {
                 Interlocked.Increment(ref received);
                 Volatile.Write(ref lastEvent, item.Method);
+                // Omit payload-heavy events; keep ordering of navigation and failure metadata.
+                if (!item.Method.EndsWith("ExtraInfo", StringComparison.Ordinal) && item.Method != "Network.dataReceived")
+                    trace.Cdp(item.Method, item.SessionId, item.Parameters);
                 if (!queue.Writer.TryWrite(item)) { overflow = true; queue.Writer.TryComplete(new BrowserDockException(ErrorCategory.ProtocolError, "Navigation event queue overflow.")); }
             }
         }
@@ -302,6 +306,8 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         var outstanding = new HashSet<string>();
         var lastActivity = DateTimeOffset.UtcNow;
         string? loader = null;
+        string? documentRequest = null, documentFailure = null;
+        var documentResponse = false;
         var committed = false; var dom = false; var loaded = false;
         try
         {
@@ -314,6 +320,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
             frameId = frame.GetProperty("id").GetString();
             oldLoader = frame.GetProperty("loaderId").GetString();
             connection.Event += Observe; observing = true;
+            trace.Add("navigation-dispatch", ("mode", options.Mode.ToString()));
             lastActivity = DateTimeOffset.UtcNow;
             if (standard is null)
             {
@@ -329,6 +336,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 loader = result.TryGetProperty("loaderId", out var value) ? value.GetString() : null;
             }
             else { stage = "WebDriver.Navigate"; await standard(token).ConfigureAwait(false); }
+            trace.Add("navigation-command-returned");
             stage = "navigation-events";
             while (true)
             {
@@ -340,11 +348,15 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                 {
                     var p = item.Parameters;
                     if (item.Method == "Browser.downloadWillBegin" && p.GetProperty("frameId").GetString() == frameId) return new(url, redirects, NavigationOutcome.Download);
+                    if ((item.Method == "Target.detachedFromTarget" && BoundedDiagnosticTrace.Field(p, "sessionId") == session.SessionId) ||
+                        item.Method == "Inspector.detached")
+                        throw new BrowserDockException(ErrorCategory.DevToolsEndpointFailure, "The CDP session observing navigation was detached.") { BrowserMayHaveAdvanced = true };
                     if (item.Method == "Inspector.targetCrashed") throw new BrowserDockException(ErrorCategory.TargetCrashed, "Page crashed during navigation.");
                     if (item.Method == "Page.frameNavigated")
                     {
                         var f = p.GetProperty("frame");
-                        if (f.GetProperty("id").GetString() == frameId && f.GetProperty("loaderId").GetString() != oldLoader)
+                        if (f.GetProperty("id").GetString() == frameId && f.GetProperty("loaderId").GetString() != oldLoader &&
+                            (loader is null || f.GetProperty("loaderId").GetString() == loader))
                         { loader ??= f.GetProperty("loaderId").GetString(); committed = true; }
                     }
                     if (item.Method == "Page.navigatedWithinDocument" && p.GetProperty("frameId").GetString() == frameId) { committed = dom = loaded = true; }
@@ -363,9 +375,31 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                     {
                         var requestId = p.GetProperty("requestId").GetString()!;
                         outstanding.Add(requestId); lastActivity = DateTimeOffset.UtcNow;
+                        if (BoundedDiagnosticTrace.Field(p, "frameId") == frameId && BoundedDiagnosticTrace.Field(p, "type") == "Document" &&
+                            BoundedDiagnosticTrace.Field(p, "loaderId") is { } requestLoader && requestLoader != oldLoader &&
+                            (loader is null || loader == requestLoader))
+                        {
+                            loader ??= requestLoader;
+                            documentRequest = requestId; documentResponse = false; documentFailure = null;
+                        }
                         if (p.TryGetProperty("frameId", out var rf) && rf.GetString() == frameId && p.TryGetProperty("type", out var type) && type.GetString() == "Document" && p.TryGetProperty("redirectResponse", out var redirect)) redirects.Add(redirect.GetProperty("url").GetString()!);
                     }
+                    if (item.Method == "Network.responseReceived" && documentRequest is not null && BoundedDiagnosticTrace.Field(p, "requestId") == documentRequest)
+                        documentResponse = true;
                     if (item.Method is "Network.loadingFinished" or "Network.loadingFailed") { outstanding.Remove(p.GetProperty("requestId").GetString()!); lastActivity = DateTimeOffset.UtcNow; }
+                    if (item.Method == "Network.loadingFailed" && documentRequest is not null && BoundedDiagnosticTrace.Field(p, "requestId") == documentRequest)
+                    {
+                        documentFailure = BoundedDiagnosticTrace.Field(p, "errorText") ?? "Unknown document loading failure";
+                        // Chrome also reports ERR_ABORTED after a download response, before
+                        // Browser.downloadWillBegin. Preserve that event's full existing budget;
+                        // do not introduce a timing guess or classify response MIME types.
+                        if (documentFailure != "net::ERR_ABORTED" || !documentResponse)
+                        {
+                            var error = new BrowserDockException(ErrorCategory.ProtocolError, "Main document loading failed: " + documentFailure) { BrowserMayHaveAdvanced = true };
+                            error.Data[NavigationDiagnostics.Prefix + "CdpErrorText"] = documentFailure;
+                            throw error;
+                        }
+                    }
                 }
                 var complete = options.WaitUntil switch
                 {
@@ -375,7 +409,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
                     NavigationWaitUntil.NetworkIdle => loaded && outstanding.Count == 0 && DateTimeOffset.UtcNow - lastActivity >= TimeSpan.FromMilliseconds(500),
                     _ => false
                 };
-                if (complete)
+                if (complete && documentFailure is null)
                 {
                     stage = "Runtime.evaluate";
                     var location = await connection.SendAsync("Runtime.evaluate", new { expression = "location.href", returnByValue = true }, session.SessionId, token).ConfigureAwait(false);
@@ -386,6 +420,14 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
         }
         catch (Exception error)
         {
+            trace.Add("navigation-failed", ("stage", stage), ("exception", error.GetType().Name));
+            error.Data[NavigationDiagnostics.Prefix + "Trace"] = trace.Snapshot();
+            error.Data[NavigationDiagnostics.Prefix + "DocumentRequestId"] = documentRequest ?? "";
+            if (documentFailure is not null)
+            {
+                error.Data[NavigationDiagnostics.Prefix + "CdpErrorText"] = documentFailure;
+                error.Data[NavigationDiagnostics.Prefix + "AwaitingDownload"] = (documentFailure == "net::ERR_ABORTED" && documentResponse).ToString();
+            }
             NavigationDiagnostics.Record(error, stage, options);
             error.Data[NavigationDiagnostics.Prefix + "SessionId"] = session?.SessionId ?? "";
             error.Data[NavigationDiagnostics.Prefix + "TargetId"] = session?.Target.Id ?? "";

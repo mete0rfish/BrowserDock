@@ -36,7 +36,7 @@ internal static class Api
     internal static void CopyNavigationDiagnostics(Exception source, Exception destination)
     {
         foreach (DictionaryEntry entry in source.Data)
-            if (entry.Key is string key && key.StartsWith("Navigation.", StringComparison.Ordinal) && entry.Value is string value)
+            if (entry.Key is string key && (key.StartsWith("Navigation.", StringComparison.Ordinal) || key.StartsWith("Cleanup.", StringComparison.Ordinal)) && entry.Value is string value)
                 destination.Data[key] = value;
     }
     internal static Exception Translate(Core.BrowserDockException error) => error.Category switch
