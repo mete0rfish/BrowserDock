@@ -69,7 +69,7 @@ public sealed partial class Browser
                         if (condition == ElementCondition.Absent ||
                             (condition is ElementCondition.Visible or ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Displayed) ||
                             (condition is ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Enabled) ||
-                            (condition is ElementCondition.Type or ElementCondition.Append && !IsEditable(element)))
+                            (condition is ElementCondition.Type or ElementCondition.Append && !IsEditable(driver, element)))
                             return (false, (ElementRef?)null);
                     }
                     catch (NoSuchElementException) { return (condition == ElementCondition.Absent, (ElementRef?)null); }

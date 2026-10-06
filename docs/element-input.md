@@ -29,12 +29,18 @@ WebDriver or switch to CDP.
 ## Editable state and native input
 
 The first match must be displayed, enabled and editable. Supported targets are
-textarea, contenteditable elements, and input types text/search/tel/url/email/
+textarea, contenteditable editing hosts, and input types text/search/tel/url/email/
 password/number. Input and textarea must not be read-only, even if they also have
 a contenteditable attribute. Other types (including file, checkbox and date
 controls) are outside this text-input subset and keep polling until the deadline
 unless their state/type changes. Hidden, disabled, read-only, missing and stale
 observations can be retried before any side effect.
+
+A contenteditable target must be an editing host: it is editable and its parent
+element is not editable. Descendants of another editing host are unsupported,
+even with their own `contenteditable=true` attribute. They keep polling without
+clearing or typing until they become a host or the deadline expires. Select the
+host itself to replace or append its contents.
 
 Input uses WebDriver clear/key commands; there is no JavaScript assignment to the
 value, typing-speed simulation or input fallback. Text, including Unicode and
@@ -52,13 +58,18 @@ sending an Enter key; `TypeAsync` still clears first. Interior newlines and spec
 key characters retain native key semantics and can trigger application handlers.
 
 Submission follows the selected Selenium-style contract: locate the element's
-associated or containing form, dispatch a cancelable bubbling `submit` event, and
+associated form for input/textarea, or the containing form for a contenteditable
+host, dispatch a cancelable bubbling `submit` event, and
 call the native form `submit()` only if the event is not canceled. It uses one
 guarded script command, does not click a submit button, and does not run native
 constraint validation like `requestSubmit()`. A canceled submit event is an
 acknowledged operation. A missing form throws `ElementInteractionFailure` after
 any preceding input has already occurred. Native `PressKeysAsync` semantics for
 a trailing Enter remain separate follow-up work.
+
+An explicit `form` attribute on input/textarea controls the association. If it is
+empty, references a missing form or its associated form was removed, the operation
+reports the missing form; it never falls back to a different ancestor form.
 
 Completion acknowledges input/submission, not navigation or an application result.
 Use a separate explicit wait for the resulting state. This selected subset is an
@@ -93,7 +104,8 @@ replace/append, newline submission, readiness changes, partial failures,
 cancellation and command-expiry boundaries through the controlled W3C executor.
 [ElementInputBrowserTests](../tests/Shared/ElementInputBrowserTests.cs) verifies
 real values/key events, Unicode, existing carets/selections, form events,
-textarea/contenteditable, nested frames and no replay after clear-triggered DOM
+textarea/contenteditable, rejected nested editable descendants, missing/removed
+and external form associations, nested frames and no replay after clear-triggered DOM
 replacement. Its shared assertions run in the Linux investigation harness.
 Windows actual-browser execution and corresponding high-level SeleniumBase
 comparisons ([#36](https://github.com/mete0rfish/BrowserDock/issues/36)) remain

@@ -22,14 +22,16 @@ public sealed class ElementInputBrowserTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45)); var token = deadline.Token;
         await using var lease = await browser.GetWebDriverAsync(token); var commands = lease.Commands;
         var facade = new Legacy.Browser(browser);
-        Task Input(string text, bool clear = true, IReadOnlyList<Locator>? frames = null)
+        Task Input(string text, bool clear = true, IReadOnlyList<Locator>? frames = null, bool expectNotEditable = false)
         {
             if (legacy)
             {
                 var options = new Legacy.ElementWaitOptions { FramePath = (frames ?? Array.Empty<Locator>()).Select(Legacy.Locator.FromCore).ToArray() };
+                if (expectNotEditable) { options.Timeout = TimeSpan.FromSeconds(1); options.PollInterval = TimeSpan.FromSeconds(5); }
                 return clear ? facade.TypeAsync(Legacy.Locator.Id("subject"), text, options, token) : facade.SendKeysAsync(Legacy.Locator.Id("subject"), text, options, token);
             }
             var core = new ElementWaitOptions { FramePath = frames ?? Array.Empty<Locator>() };
+            if (expectNotEditable) core = core with { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(5) };
             return (clear ? browser.TypeAsync(Locator.Id("subject"), text, core, token) : browser.SendKeysAsync(Locator.Id("subject"), text, core, token)).AsTask();
         }
         async Task<string?> Value() => await (await browser.FindAsync(Locator.Id("subject"), cancellationToken: token)).GetValueAsync(token);
@@ -60,6 +62,48 @@ public sealed class ElementInputBrowserTests
         await commands.ExecuteScriptAsync("getSelection().collapse(document.getElementById('subject').firstChild,0);", cancellationToken: token);
         await Input("!", false);
         Assert.That((await commands.ExecuteScriptAsync("return document.getElementById('subject').textContent", cancellationToken: token)).GetString(), Is.EqualTo("editable!"));
+
+        // An explicit contenteditable attribute inside another editor still
+        // does not make the descendant an editing host.
+        foreach (var clear in new[] { false, true })
+        foreach (var attribute in new[] { "", " contenteditable=true" })
+        {
+            await commands.ExecuteScriptAsync("document.body.innerHTML='<div contenteditable=true id=host><span id=subject" + attribute +
+                ">first</span><span id=other>second</span></div>';document.getElementById('host').focus();", cancellationToken: token);
+            var before = await commands.ExecuteScriptAsync("return document.body.innerHTML", cancellationToken: token);
+            if (legacy)
+                Assert.That(Assert.ThrowsAsync<Legacy.BrowserDockException>(async () => await Input("X", clear, expectNotEditable: true))!.Category, Is.EqualTo(Legacy.ErrorCategory.OperationTimedOut));
+            else
+                Assert.That(Assert.ThrowsAsync<BrowserDockException>(async () => await Input("X", clear, expectNotEditable: true))!.Category, Is.EqualTo(ErrorCategory.OperationTimedOut));
+            Assert.That((await commands.ExecuteScriptAsync("return document.body.innerHTML", cancellationToken: token)).GetString(), Is.EqualTo(before.GetString()), "Rejected descendants must preserve the whole editor.");
+        }
+
+        foreach (var clear in new[] { false, true })
+        foreach (var tag in new[] { "input", "textarea" })
+        foreach (var association in new[] { "missing", "empty", "removed", "external", "ancestor" })
+        {
+            var attribute = association == "ancestor" ? "" : " form=" + (association == "empty" ? "\"\"" : association == "missing" ? "missing" : "external");
+            var control = tag == "input" ? "<input id=subject value=old" + attribute + ">" : "<textarea id=subject" + attribute + ">old</textarea>";
+            await commands.ExecuteScriptAsync("window.submits=[];document.body.innerHTML='<form id=ancestor>" + control + "</form><form id=external></form>';" +
+                "document.querySelectorAll('form').forEach(f=>f.onsubmit=e=>{window.submits.push(f.id);e.preventDefault();});" +
+                (association == "removed" ? "document.getElementById('external').remove();" : ""), cancellationToken: token);
+            var hasOwner = association is "external" or "ancestor";
+            Assert.That((await commands.ExecuteScriptAsync("return document.getElementById('subject').form?.id || ''", cancellationToken: token)).GetString(), Is.EqualTo(hasOwner ? association : ""));
+            if (hasOwner) await Input("X\n", clear);
+            else if (legacy)
+                Assert.That(Assert.ThrowsAsync<Legacy.BrowserDockException>(async () => await Input("X\n", clear))!.Category, Is.EqualTo(Legacy.ErrorCategory.ElementInteractionFailure));
+            else
+                Assert.That(Assert.ThrowsAsync<BrowserDockException>(async () => await Input("X\n", clear))!.Category, Is.EqualTo(ErrorCategory.ElementInteractionFailure));
+            Assert.That(await Value(), Is.EqualTo(clear ? "X" : "oldX"), "Missing form is reported after the input, without replay.");
+            Assert.That((await commands.ExecuteScriptAsync("return window.submits.join(',')", cancellationToken: token)).GetString(), Is.EqualTo(hasOwner ? association : ""));
+            Assert.That(browser.State, Is.EqualTo(BrowserState.WebDriverAttached));
+        }
+        await commands.ExecuteScriptAsync("""
+            window.submits=0;
+            document.body.innerHTML='<form onsubmit="window.submits++;event.preventDefault()"><div id=subject contenteditable=true>old</div></form>';
+            """, cancellationToken: token);
+        await Input("editable\n");
+        Assert.That((await commands.ExecuteScriptAsync("return window.submits", cancellationToken: token)).GetInt32(), Is.EqualTo(1), "Editing hosts still use their containing form.");
 
         await commands.ExecuteScriptAsync("""
             document.body.innerHTML = '<input id=subject value=top><iframe id=outer></iframe>';

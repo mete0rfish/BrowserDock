@@ -21,11 +21,17 @@ public sealed partial class Browser
             => _ = await WaitForElementCoreAsync(locator, wait, clear ? ElementCondition.Type : ElementCondition.Append, epoch, valid, caller, text).ConfigureAwait(false);
     }
 
-    private static bool IsEditable(IWebElement element)
+    private static bool IsEditable(RemoteWebDriver driver, IWebElement element)
     {
         var tag = element.TagName.ToLowerInvariant();
         if (tag is not ("input" or "textarea"))
-            return string.Equals(element.GetDomProperty("isContentEditable"), "true", StringComparison.OrdinalIgnoreCase);
+            // WebDriver targets the editing host, not an arbitrary editable
+            // descendant. Reject descendants before Clear can remove their text.
+            return driver.ExecuteScript("""
+                /* browserDockEditingHost */
+                const element = arguments[0];
+                return element.isContentEditable && !element.parentElement?.isContentEditable;
+                """, element) is true;
         if (string.Equals(element.GetDomProperty("readOnly"), "true", StringComparison.OrdinalIgnoreCase)) return false;
         return tag == "textarea" || element.GetDomProperty("type") is "text" or "search" or "tel" or "url" or "email" or "password" or "number";
     }
@@ -51,7 +57,8 @@ public sealed partial class Browser
             var submitted = driver.ExecuteScript("""
                 /* browserDockSubmit */
                 const element = arguments[0];
-                const form = element.form || element.closest('form');
+                const form = element.localName === 'input' || element.localName === 'textarea'
+                    ? element.form : element.closest('form');
                 if (!form) return false;
                 const event = form.ownerDocument.createEvent('Event');
                 event.initEvent('submit', true, true);

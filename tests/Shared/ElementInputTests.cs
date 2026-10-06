@@ -104,6 +104,20 @@ public sealed class ElementInputTests
         Assert.That(Actions(f), Is.EqualTo(new[] { "clear", "send:text" }));
     }
 
+    [TestCase(false, false), TestCase(true, false), TestCase(false, true), TestCase(true, true)]
+    public async Task EditableDescendantCannotClearInputOrSubmit(bool legacy, bool clear)
+    {
+        await using var f = await Fixture.StartAsync();
+        f.OnCommand = c => c.Name == DriverCommand.GetElementTagName ? Reply("span")
+            : c.Name == DriverCommand.GetElementProperty && (string)c.Parameters!["name"]! == "isContentEditable" ? Reply("true")
+            : c.Name == DriverCommand.ExecuteScript && ((string)c.Parameters!["script"]!).Contains("browserDockEditingHost") ? Reply(false)
+            : Ready(c);
+        Assert.That(Category(await Catch(Input(f, legacy, clear, "text\n", options: Options with
+        { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(5) }))), Is.EqualTo(ErrorCategory.OperationTimedOut));
+        Assert.That(Actions(f), Is.Empty);
+        Assert.That(f.Core.Executor.Disposals, Is.Zero);
+    }
+
     [TestCase(false, "file"), TestCase(true, "file")]
     [TestCase(false, "checkbox"), TestCase(true, "checkbox")]
     [TestCase(false, "date"), TestCase(true, "date")]
