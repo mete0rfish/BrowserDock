@@ -32,8 +32,8 @@ public sealed partial class Browser
     internal async ValueTask WaitForAbsentForLeaseAsync(Locator locator, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
         => _ = await WaitForElementCoreAsync(locator, wait, ElementCondition.Absent, epoch, valid, caller).ConfigureAwait(false);
 
-    private enum ElementCondition { Exists, Visible, Absent, Click }
-    private async ValueTask<ElementRef?> WaitForElementCoreAsync(Locator locator, ElementWaitOptions? wait, ElementCondition condition, long epoch, Func<bool> valid, CancellationToken caller)
+    private enum ElementCondition { Exists, Visible, Absent, Click, Type, Append }
+    private async ValueTask<ElementRef?> WaitForElementCoreAsync(Locator locator, ElementWaitOptions? wait, ElementCondition condition, long epoch, Func<bool> valid, CancellationToken caller, string? text = null)
     {
         ElementWaitOptions.ValidateLocator(locator);
         var captured = (wait ?? new()).Capture();
@@ -67,25 +67,31 @@ public sealed partial class Browser
                         elementId = attachment!.Executor.LastFoundElementId
                             ?? throw new BrowserDockException(ErrorCategory.ProtocolError, "W3C find-element response did not contain an element reference.");
                         if (condition == ElementCondition.Absent ||
-                            (condition is ElementCondition.Visible or ElementCondition.Click && !element.Displayed) ||
-                            (condition == ElementCondition.Click && !element.Enabled))
+                            (condition is ElementCondition.Visible or ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Displayed) ||
+                            (condition is ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Enabled) ||
+                            (condition is ElementCondition.Type or ElementCondition.Append && !IsEditable(element)))
                             return (false, (ElementRef?)null);
                     }
                     catch (NoSuchElementException) { return (condition == ElementCondition.Absent, (ElementRef?)null); }
                     catch (StaleElementReferenceException) { return (false, (ElementRef?)null); }
-                    if (condition == ElementCondition.Click)
+                    if (condition is ElementCondition.Click or ElementCondition.Type or ElementCondition.Append)
+                    {
+                        // Keep readiness and every side effect under the command
+                        // gate, outside all observation/reacquisition retries.
+                        if (condition == ElementCondition.Click)
+                        { CheckAction(); element.Click(); }
+                        else PerformInput(driver, element, text!, condition == ElementCondition.Type, CheckAction);
+                        return (true, (ElementRef?)null);
+                    }
+
+                    void CheckAction()
                     {
                         CheckDeadline();
                         if (!valid() || AttachmentEpoch != epoch || State != BrowserState.WebDriverAttached)
                             throw new StaleAttachmentException();
-                        // Keep lookup, readiness and click in the same command gate.
-                        // The side effect is deliberately outside the observation
-                        // retry catches, including stale/intercepted click errors.
-                        // The per-command budget may expire before the overall
-                        // wait budget, while executor cleanup is still pending.
+                        // A shorter command deadline can expire before executor
+                        // cleanup runs. Recheck before each separate side effect.
                         commandToken.ThrowIfCancellationRequested();
-                        element.Click();
-                        return (true, (ElementRef?)null);
                     }
                     return (true, (ElementRef?)new ElementRef(this, elementId, locator, find, target.Value, SessionGeneration, epoch));
                 }, caller, deadlineToken).ConfigureAwait(false);

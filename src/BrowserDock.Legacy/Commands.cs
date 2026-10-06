@@ -13,6 +13,8 @@ public interface IBrowserCommands
     Task<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<BrowserCookie>> GetCookiesAsync(CancellationToken cancellationToken = default);
     Task AddCookieAsync(BrowserCookie cookie, CancellationToken cancellationToken = default);
@@ -44,6 +46,20 @@ internal sealed class GuardedCommands(Core.IBrowserCommands inner) : IBrowserCom
         if (locator is null) throw new ArgumentNullException(nameof(locator));
         var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
         return Api.Call(async () => new ElementRef(await inner.WaitForVisibleAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
+    }
+    public Task TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.TypeAsync(coreLocator, text, snapshot, cancellationToken).AsTask());
+    }
+    public Task SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.SendKeysAsync(coreLocator, text, snapshot, cancellationToken).AsTask());
     }
     public Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
     {

@@ -52,6 +52,20 @@ public sealed class Browser
         var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
         return Api.Call(async () => new ElementRef(await inner.WaitForVisibleAsync(coreLocator, snapshot, cancellationToken).ConfigureAwait(false)));
     }
+    public Task TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.TypeAsync(coreLocator, text, snapshot, cancellationToken).AsTask());
+    }
+    public Task SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.SendKeysAsync(coreLocator, text, snapshot, cancellationToken).AsTask());
+    }
     public Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (locator is null) throw new ArgumentNullException(nameof(locator));

@@ -6,6 +6,13 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Added
 
+- Core/Legacy high-level `TypeAsync` (clear then input) and `SendKeysAsync`
+  (append at the end), with editable-state waiting, one overall deadline and
+  per-stage cancellation checks. A trailing LF/CRLF requests form submission;
+  partial side effects are never replayed. Raw `ElementRef.SendKeysAsync` stays
+  unchanged. Custom `IBrowserCommands` implementers must add both members.
+  See [input contracts](docs/element-input.md) (#32, partial).
+
 - Core/Legacy high-level `ClickAsync(locator, ElementWaitOptions, token)` on
   `Browser` and `lease.Commands`: wait for displayed/enabled state, then issue
   one guarded WebDriver click within the same overall deadline (#32, partial).

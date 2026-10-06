@@ -124,6 +124,11 @@ wait for the first matching element to be displayed and enabled, then click once
 It shares one deadline and never retries a dispatched click or falls back to a
 JavaScript click. See [guarded clicks](element-clicks.md).
 
+`TypeAsync(locator, text, options, token)` waits for editable state and replaces
+the value. `SendKeysAsync` on the browser or lease appends at the end; a final LF/CRLF
+requests form submission. Partial input is never automatically replayed. See
+[text input contracts and examples](element-input.md).
+
 ## Patching and logging
 
 Patching defaults to `Disabled`. `ValidateOnly` checks exact pattern counts for a supported recipe and uses the original binary. `BinaryCompatibility` preserves the original and creates a separate cached copy with a hash manifest. Missing recipes and validation failures fail explicitly rather than silently falling back to the original. `IDriverPatchStrategy` supplies verified version ranges and length-preserving patterns.

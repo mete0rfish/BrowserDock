@@ -11,6 +11,8 @@
     <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
     <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />
     <Compile Include="../Shared/ElementClickTests.cs" Link="ElementClickTests.cs" />
+    <Compile Include="../Shared/ElementInputTests.cs" Link="ElementInputTests.cs" />
+    <Compile Include="../Shared/ElementInputBrowserTests.cs" Link="ElementInputBrowserTests.cs" />
     <Compile Include="../Shared/ElementClickBrowserTests.cs" Link="ElementClickBrowserTests.cs" />
     <Compile Include="../Shared/ElementWaitBrowserTests.cs" Link="ElementWaitBrowserTests.cs" />
     <Compile Include="../Shared/StartupSnapshotTests.cs" Link="StartupSnapshotTests.cs" />
