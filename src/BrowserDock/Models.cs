@@ -108,6 +108,9 @@ public interface IBrowserCommands
     ValueTask<string> GetTitleAsync(CancellationToken cancellationToken = default);
     ValueTask NavigateAsync(Uri url, CancellationToken cancellationToken = default);
     ValueTask<ElementRef> FindAsync(Locator locator, FindOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default);
     ValueTask<IReadOnlyList<BrowserCookie>> GetCookiesAsync(CancellationToken cancellationToken = default);
     ValueTask AddCookieAsync(BrowserCookie cookie, CancellationToken cancellationToken = default);

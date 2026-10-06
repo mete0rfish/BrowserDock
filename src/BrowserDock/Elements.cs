@@ -29,6 +29,12 @@ internal sealed class GuardedCommands(Browser browser, WebDriverLease lease) : I
     }
     public ValueTask<ElementRef> FindAsync(Locator locator, FindOptions? options = null, CancellationToken cancellationToken = default)
         => browser.FindForLeaseAsync(locator, options ?? new(), lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForElementForLeaseAsync(locator, options, false, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForElementForLeaseAsync(locator, options, true, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForAbsentForLeaseAsync(locator, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default)
         => Run(d => JsonSerializer.SerializeToElement(ScriptValues.Normalize(d.ExecuteScript(script, (arguments ?? []).Select(x => ScriptValues.Normalize(x)).ToArray()!))), cancellationToken);
     public ValueTask<IReadOnlyList<BrowserCookie>> GetCookiesAsync(CancellationToken cancellationToken = default)
@@ -89,6 +95,13 @@ public sealed class ElementRef
     public async ValueTask ClearAsync(CancellationToken cancellationToken = default) => await Run(e => { e.Clear(); return true; }, cancellationToken).ConfigureAwait(false);
     public async ValueTask SendKeysAsync(string text, CancellationToken cancellationToken = default) => await Run(e => { e.SendKeys(text); return true; }, cancellationToken).ConfigureAwait(false);
     public ValueTask<string> GetTextAsync(CancellationToken cancellationToken = default) => Run(e => e.Text, cancellationToken);
-    public ValueTask<string?> GetAttributeAsync(string name, CancellationToken cancellationToken = default) => Run<string?>(e => e.GetDomAttribute(name), cancellationToken);
+    /// <summary>Compatibility alias for GetDomAttributeAsync; does not read live properties.</summary>
+    public ValueTask<string?> GetAttributeAsync(string name, CancellationToken cancellationToken = default) => GetDomAttributeAsync(name, cancellationToken);
+    /// <summary>Read the DOM content attribute, or null when it is absent.</summary>
+    public ValueTask<string?> GetDomAttributeAsync(string name, CancellationToken cancellationToken = default) => Run<string?>(e => e.GetDomAttribute(name), cancellationToken);
+    /// <summary>Read the current DOM property using WebDriver's string representation.</summary>
+    public ValueTask<string?> GetDomPropertyAsync(string name, CancellationToken cancellationToken = default) => Run<string?>(e => e.GetDomProperty(name), cancellationToken);
+    /// <summary>Read the live value property, including edits made since the document loaded.</summary>
+    public ValueTask<string?> GetValueAsync(CancellationToken cancellationToken = default) => GetDomPropertyAsync("value", cancellationToken);
     public ValueTask<bool> IsDisplayedAsync(CancellationToken cancellationToken = default) => Run(e => e.Displayed, cancellationToken);
 }
