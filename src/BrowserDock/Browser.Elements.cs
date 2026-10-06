@@ -49,7 +49,7 @@ public sealed partial class Browser
             while (true)
             {
                 CheckDeadline();
-                var observation = await CommandAsync<(bool Satisfied, ElementRef? Element)>(epoch, valid, driver =>
+                var observation = await CommandAsync<(bool Satisfied, ElementRef? Element)>(epoch, valid, (driver, commandToken) =>
                 {
                     target ??= cdp!.Resolve().Key;
                     try { RestoreElementContext(driver, target.Value, captured.FramePath); }
@@ -81,6 +81,9 @@ public sealed partial class Browser
                         // Keep lookup, readiness and click in the same command gate.
                         // The side effect is deliberately outside the observation
                         // retry catches, including stale/intercepted click errors.
+                        // The per-command budget may expire before the overall
+                        // wait budget, while executor cleanup is still pending.
+                        commandToken.ThrowIfCancellationRequested();
                         element.Click();
                         return (true, (ElementRef?)null);
                     }

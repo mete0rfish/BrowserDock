@@ -472,11 +472,16 @@ public sealed partial class Browser : IAsyncDisposable
             }
             return await cdp!.PageAsync(method, parameters, target, token).ConfigureAwait(false);
         }, options.Timeouts.Command, cancellationToken);
-    internal async ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, T> action, CancellationToken caller, CancellationToken operationDeadline = default)
+    internal ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, T> action, CancellationToken caller, CancellationToken operationDeadline = default)
+        => CommandAsync(epoch, valid, (driver, _) => action(driver), caller, operationDeadline);
+
+    internal async ValueTask<T> CommandAsync<T>(long epoch, Func<bool> valid, Func<RemoteWebDriver, CancellationToken, T> action, CancellationToken caller, CancellationToken operationDeadline = default)
     {
         var id = Guid.NewGuid();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime.Token, operationDeadline);
         using var deadline = new Deadline(options.Timeouts.Command, linked.Token);
+        // A worker may outlive this scope during bounded cancellation cleanup.
+        var commandToken = deadline.Token;
         var acquired = false;
         var execution = new Attachment.CommandExecution();
         Attachment? used = null;
@@ -501,7 +506,7 @@ public sealed partial class Browser : IAsyncDisposable
             {
                 await StageAsync("command-dispatch", deadline.Token).ConfigureAwait(false);
                 diagnostics.Write(1000, "WebDriver command started", State, SessionGeneration, epoch, id);
-                return await used.InvokeAsync(action, deadline.Token, execution).ConfigureAwait(false);
+                return await used.InvokeAsync(driver => action(driver, commandToken), commandToken, execution).ConfigureAwait(false);
             }
         }
         catch (Exception original)

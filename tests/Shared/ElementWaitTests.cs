@@ -474,14 +474,14 @@ public sealed class ElementWaitTests
             this.server = server; Core = core;
             core.Executor.Command = command => { Commands.Enqueue(command); return OnCommand(command); };
         }
-        public static async Task<Fixture> StartAsync(Func<string, CancellationToken, ValueTask>? stage = null)
+        public static async Task<Fixture> StartAsync(Func<string, CancellationToken, ValueTask>? stage = null, TimeSpan? commandBudget = null)
         {
             var server = await FixtureServer.StartAsync();
             CommandFixture? core = null;
             var controller = new CdpController(new UriBuilder(server.Url) { Scheme = "ws", Path = "/cdp" }.Uri, []);
             try
             {
-                core = await CommandFixture.StartAsync(stage: stage);
+                core = await CommandFixture.StartAsync(commandBudget: commandBudget, stage: stage);
                 using var deadline = new CancellationTokenSource(Watchdog);
                 await controller.InitializeAsync(deadline.Token);
                 core.Browser.BindElementTargetForTest(controller, controller.Controlled!.Value, "window");

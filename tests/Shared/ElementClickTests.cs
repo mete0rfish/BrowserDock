@@ -115,6 +115,39 @@ public sealed class ElementClickTests
         finally { release.TrySetResult(true); }
     }
 
+    [TestCase(false, false), TestCase(true, false), TestCase(false, true), TestCase(true, true)]
+    public async Task ExpiredCommandCannotClickBeforeCancellationCleanupRuns(bool legacy, bool lease)
+    {
+        CancellationToken commandToken = default;
+        using var expired = new ManualResetEventSlim();
+        using var resumeCancellation = new ManualResetEventSlim();
+        CancellationTokenRegistration registration = default;
+        await using var fixture = await Fixture.StartAsync((stage, token) =>
+        { if (stage == "command-dispatch") commandToken = token; return default; }, TimeSpan.FromSeconds(1));
+        fixture.OnCommand = command =>
+        {
+            if (command.Name == DriverCommand.IsElementEnabled)
+            {
+                // Hold the cancellation callbacks after the token is signaled,
+                // before executor detachment. This exposes the dispatch race
+                // deterministically instead of depending on thread scheduling.
+                registration = commandToken.Register(() =>
+                { expired.Set(); resumeCancellation.Wait(Watchdog); });
+                if (!expired.Wait(Watchdog)) throw new AssertionException("Command deadline did not expire.");
+            }
+            return Ready(command);
+        };
+        try
+        {
+            var error = await Catch(fixture.Wait("click", legacy, lease, Options with { Timeout = TimeSpan.FromSeconds(10) }));
+            Assert.That(Category(error), Is.EqualTo(ErrorCategory.OperationTimedOut));
+            Assert.That(fixture.Commands.Count(x => x.Name == DriverCommand.ClickElement), Is.Zero);
+            Assert.That(fixture.Core.Browser.State, Is.EqualTo(BrowserState.CdpOnly));
+            Assert.That(fixture.Core.Executor.Disposals, Is.EqualTo(1));
+        }
+        finally { resumeCancellation.Set(); registration.Dispose(); }
+    }
+
     [TestCase(false, "dispose"), TestCase(true, "dispose")]
     [TestCase(false, "replace"), TestCase(true, "replace")]
     [TestCase(false, "cancel"), TestCase(true, "cancel")]

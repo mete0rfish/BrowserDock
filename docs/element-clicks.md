@@ -29,6 +29,8 @@ One overall deadline includes command queueing, restoring target/frame context,
 locating the element, visibility/enabled checks, polling and the click response.
 Defaults, validation and error/cancellation rules match [element waits](element-waits.md).
 Each observation and its optional click also retain `BrowserTimeouts.Command`.
+Immediately before click dispatch, both the overall deadline and the active
+command cancellation token are checked, even if executor cleanup has not run yet.
 The command gate is released between observations. On a successful observation,
 context restoration, readiness checks and click stay under the same gate so that
 another library command cannot change the selected frame between them.
