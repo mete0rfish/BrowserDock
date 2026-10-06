@@ -121,16 +121,38 @@ public sealed class ElementInputBrowserTests
         await Input("editable\n");
         Assert.That((await commands.ExecuteScriptAsync("return window.submits", cancellationToken: token)).GetInt32(), Is.EqualTo(1), "Editing hosts still use their containing form.");
 
+        foreach (var clear in new[] { false, true })
+        foreach (var kind in new[] { "input", "textarea", "contenteditable" })
+        foreach (var name in new[] { "ownerDocument", "dispatchEvent", "submit" })
+        {
+            var control = kind switch
+            {
+                "input" => "<input id=subject value=old>",
+                "textarea" => "<textarea id=subject>old</textarea>",
+                _ => "<div id=subject contenteditable=true>old</div>"
+            };
+            await commands.ExecuteScriptAsync("document.body.innerHTML='<form id=form>" + control + "<input name=" + name + "></form>';" +
+                "window.submits=0;window.submitFlags='';document.getElementById('form').addEventListener('submit',e=>{window.submits++;window.submitFlags=[e.bubbles,e.cancelable,e.target.id].join(',');e.preventDefault();});", cancellationToken: token);
+            await Input("X\n", clear);
+            Assert.That((await commands.ExecuteScriptAsync("const e=document.getElementById('subject');return e.value ?? e.textContent", cancellationToken: token)).GetString(), Is.EqualTo(clear ? "X" : "oldX"));
+            Assert.That((await commands.ExecuteScriptAsync("return window.submits", cancellationToken: token)).GetInt32(), Is.EqualTo(1));
+            Assert.That((await commands.ExecuteScriptAsync("return window.submitFlags", cancellationToken: token)).GetString(), Is.EqualTo("true,true,form"));
+            Assert.That(browser.State, Is.EqualTo(BrowserState.WebDriverAttached));
+        }
+
         await commands.ExecuteScriptAsync("""
             document.body.innerHTML = '<input id=subject value=top><iframe id=outer></iframe>';
             const outer = document.getElementById('outer').contentDocument;
             outer.body.innerHTML = '<iframe id=inner></iframe>';
-            outer.getElementById('inner').contentDocument.body.innerHTML = '<input id=subject value=old>';
+            const inner = outer.getElementById('inner').contentDocument;
+            inner.body.innerHTML = '<form onsubmit="window.submits++;event.preventDefault()"><input id=subject value=old><input name=ownerDocument><input name=dispatchEvent><input name=submit></form>';
+            inner.defaultView.submits = 0;
             """, cancellationToken: token);
-        await Input("nested", frames: new[] { Locator.Id("outer"), Locator.Id("inner") });
+        await Input("nested\n", frames: new[] { Locator.Id("outer"), Locator.Id("inner") });
         await Input("!", false); Assert.That(await Value(), Is.EqualTo("top!"));
         var nested = await browser.FindAsync(Locator.Id("subject"), new FindOptions { FramePath = new[] { Locator.Id("outer"), Locator.Id("inner") } }, token);
         Assert.That(await nested.GetValueAsync(token), Is.EqualTo("nested"));
+        Assert.That((await commands.ExecuteScriptAsync("return window.submits", cancellationToken: token)).GetInt32(), Is.EqualTo(1), "Submission must use the nested frame's DOM APIs.");
         await commands.SwitchToFrameAsync(null, token);
         await commands.ExecuteScriptAsync("""
             document.body.innerHTML = '<input id=subject value=old>';

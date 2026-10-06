@@ -64,10 +64,14 @@ public sealed partial class Browser
                 const form = element.localName === 'input' || element.localName === 'textarea'
                     ? element.form : element.closest('form');
                 if (!form) return false;
-                const event = form.ownerDocument.createEvent('Event');
+                // Form named properties can hide ownerDocument and dispatchEvent.
+                // Context restoration puts this script in the target document.
+                const doc = document;
+                const view = doc.defaultView;
+                const event = doc.createEvent('Event');
                 event.initEvent('submit', true, true);
-                if (form.dispatchEvent(event)) {
-                    form.ownerDocument.defaultView.HTMLFormElement.prototype.submit.call(form);
+                if (view.EventTarget.prototype.dispatchEvent.call(form, event)) {
+                    view.HTMLFormElement.prototype.submit.call(form);
                 }
                 return true;
                 """, element);

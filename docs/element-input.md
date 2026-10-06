@@ -73,6 +73,9 @@ An explicit `form` attribute on input/textarea controls the association. If it i
 empty, references a missing form or its associated form was removed, the operation
 reports the missing form; it never falls back to a different ancestor form.
 
+Submission uses the target document and prototype DOM methods, so form fields
+named `ownerDocument`, `dispatchEvent` or `submit` do not hide the APIs it calls.
+
 Completion acknowledges input/submission, not navigation or an application result.
 Use a separate explicit wait for the resulting state. This selected subset is an
 intentional deviation from upstream retries/fallbacks and caret behavior; it does
@@ -107,7 +110,8 @@ cancellation and command-expiry boundaries through the controlled W3C executor.
 [ElementInputBrowserTests](../tests/Shared/ElementInputBrowserTests.cs) verifies
 real values/key events, Unicode, existing carets/selections, form events,
 textarea/contenteditable, rejected nested editors across non-editable boundaries
-with and without target focus, standalone/plaintext-only editors, missing/removed
+with and without target focus, standalone/plaintext-only editors, form field name
+collisions and preserved attachment state, missing/removed
 and external form associations, nested frames and no replay after clear-triggered DOM
 replacement. Its shared assertions run in the Linux investigation harness.
 Windows actual-browser execution and corresponding high-level SeleniumBase
