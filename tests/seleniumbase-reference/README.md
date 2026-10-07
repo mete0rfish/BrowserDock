@@ -1,5 +1,7 @@
 # SeleniumBase comparison tests
 
+## High-level interactions (SB-05)
+
 The **interactions** suite adds SB-05 independently of the SB-01–04 baseline.
 It calls BrowserDock's high-level click/type/append/text/hidden/absence APIs and
 the corresponding SeleniumBase DriverMethods bindings (`Driver.type` binds to
@@ -47,6 +49,8 @@ covered separately by .NET contract tests; SeleniumBase's broad exception-to-hid
 behavior is deliberately not copied. Exact text uses .NET `String.Trim`; Python
 `str.strip` also strips C0 separators U+001C–U+001F, which are outside this selected
 fixture. A passing SB-05 result does not close #32 or #36.
+
+## Baseline comparison (SB-01–04)
 
 Run on an interactive Windows 11 x64 desktop. The shared fixture covers ordinary interaction (SB-01), same-document disconnect/connect (SB-02), detached navigation replacing a tab (SB-03), and CDP-only navigation (SB-04). It does not visit external sites.
 
