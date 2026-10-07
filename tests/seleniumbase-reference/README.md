@@ -3,7 +3,7 @@
 The **interactions** suite adds SB-05 independently of the SB-01–04 baseline.
 It calls BrowserDock's high-level click/type/append/text/hidden/absence APIs and
 the corresponding SeleniumBase DriverMethods bindings (`Driver.type` binds to
-`update_text`). SeleniumBase is extended onto a normal Selenium driver launched
+`update_text`). SeleniumBase DriverMethods wraps a normal Selenium driver launched
 with the supplied vendor binary: no UC patching or implicit driver downloads.
 The scenario includes delayed visibility/readiness, exactly one click, replace
 then append, an input value differing from its HTML attribute, explicit frame

@@ -18,7 +18,7 @@ def run_interactions(scenario):
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.common.by import By
-    from seleniumbase.core.browser_launcher import extend_driver
+    from seleniumbase.core.sb_driver import DriverMethods
 
     investigation = os.environ.get("BROWSERDOCK_REFERENCE_INVESTIGATION") == "linux"
     assert (investigation and sys.platform.startswith("linux")) or (sys.platform == "win32" and sys.getwindowsversion().build >= 22000)
@@ -51,30 +51,30 @@ def run_interactions(scenario):
         assert report["browserVersion"] == fixture["chromeVersion"]
         created = chrome.create_time()
         session = driver.session_id
-        # This is the same DriverMethods binding used by SeleniumBase Driver.
+        # These are the same high-level methods bound by SeleniumBase Driver.
         # Launch with the supplied vendor binary; no UC patching/provisioning.
-        extend_driver(driver, use_uc=False)
+        methods = DriverMethods(driver)
         driver.get(base + "/reference/interactions")
         driver.execute_script("window.armStatus()")
-        contains = driver.wait_for_text("ready", "#status", timeout=10).text
+        contains = methods.wait_for_text("ready", "#status", timeout=10).text
         driver.execute_script("window.armExact()")
-        exact = driver.wait_for_exact_text(" ready ", "#status", timeout=10).text
-        initial = driver.wait_for_exact_text("initial", "#input", timeout=10).get_property("value")
+        exact = methods.wait_for_exact_text(" ready ", "#status", timeout=10).text
+        initial = methods.wait_for_exact_text("initial", "#input", timeout=10).get_property("value")
         driver.execute_script("window.armButton()")
-        driver.click("#button", timeout=10)
-        driver.type("#input", "reference", timeout=10)
-        driver.send_keys("#input", " + appended", timeout=10)
-        value = driver.wait_for_exact_text("reference + appended", "#input", timeout=10).get_property("value")
-        driver.switch_to.frame(driver.wait_for_element("#frame", timeout=10))
-        driver.type("#frame-input", "frame-value", timeout=10)
-        frame = driver.wait_for_exact_text("frame-value", "#frame-input", timeout=10).get_property("value")
+        methods.click("#button", timeout=10)
+        methods.update_text("#input", "reference", timeout=10)
+        methods.send_keys("#input", " + appended", timeout=10)
+        value = methods.wait_for_exact_text("reference + appended", "#input", timeout=10).get_property("value")
+        driver.switch_to.frame(methods.wait_for_element("#frame", timeout=10))
+        methods.update_text("#frame-input", "frame-value", timeout=10)
+        frame = methods.wait_for_exact_text("frame-value", "#frame-input", timeout=10).get_property("value")
         driver.switch_to.default_content()
-        top = driver.wait_for_exact_text("ready", "#status", timeout=10).text
+        top = methods.wait_for_exact_text("ready", "#status", timeout=10).text
         driver.execute_script("window.armHide()")
-        driver.wait_for_element_not_visible("#marker", timeout=10)
+        methods.wait_for_element_not_visible("#marker", timeout=10)
         hidden = driver.execute_script("return !!document.getElementById('marker') && getComputedStyle(document.getElementById('marker')).display==='none'")
         driver.execute_script("window.armRemove()")
-        driver.wait_for_element_absent("#marker", timeout=10)
+        methods.wait_for_element_absent("#marker", timeout=10)
         state = driver.execute_script("return {clicks:window.clicks,inputAttribute:document.getElementById('input').getAttribute('value'),absent:!document.getElementById('marker')}")
         observed = dict(containsText=contains, exactText=exact, initialValue=initial, input=value,
                         frame=frame, topLevelText=top, hiddenPresent=hidden, clicks=state["clicks"],
