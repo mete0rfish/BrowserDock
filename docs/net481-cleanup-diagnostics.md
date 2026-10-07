@@ -8,6 +8,11 @@ The original failure's cause remains unconfirmed.
 
 Failed attachment cleanup waits now retain these string-valued exception entries:
 
+- `Cleanup.BrowserTrace` / `Cleanup.BrowserSnapshot`: final-cleanup stages,
+  shared owner state, gate availability and diagnostic-worker state when a
+  fixture's caller wait expires. The stage is recorded before its state snapshot.
+- `Cleanup.CdpTrace` / `Cleanup.CdpSnapshot`: separate reader, dispatcher and
+  disposal cancellation/abort boundaries and pump-task states.
 - `Cleanup.AttachmentTrace`: bounded timestamps and start/end/failure stages for
   process termination, executor disposal, driver disposal and process-handle disposal.
 - `Cleanup.AttachmentSnapshot`: shared cleanup-task state and completed cleanup steps.
@@ -31,6 +36,12 @@ check the reported stage and caller token, release the owner and verify cleanup
 completes once. A separate test repeats owned-process cleanup 20 times and checks
 process exit and both output drains. These run in common CI, including net481.
 A passing repetition does not resolve the historical failure.
+
+The failure reproduced in PR #52 with all attachment/process steps already
+complete; nine net481 cases timed out waiting for Browser.StopAsync in fixtures
+with CDP connections. A documentation-only candidate then passed net481 without
+a runtime fix. Browser/CDP boundary evidence and a separate 40-iteration bound-CDP
+cleanup test narrow the investigation; the root cause is not established yet.
 
 Use `ci:required` on the PR to run common contracts and Secret scan. If a run fails,
 retain that attempt and inspect its TRX metadata before choosing a fix. Do not

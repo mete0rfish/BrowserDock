@@ -580,6 +580,22 @@ public sealed class CommandDeadlineTests
         }
     }
 
+    [Test]
+    public async Task RepeatedBoundCdpCleanupCompletesAllPumps()
+    {
+        // The reproduced net481 timeout occurred after driver cleanup completed,
+        // in fixtures with a live CDP connection. Keep this distinct from the
+        // process-only repetition and retain the existing per-operation budget.
+        for (var iteration = 0; iteration < 40; iteration++)
+        {
+            await using var fixture = await ElementWaitTests.Fixture.StartAsync();
+            var resources = fixture.Core.Browser.CaptureResourcesForTest();
+            await Bounded(fixture.Core.Browser.StopAsync().AsTask());
+            Assert.That(fixture.Core.Browser.State, Is.EqualTo(BrowserState.Stopped), "iteration " + iteration);
+            Assert.That(resources(), Is.EqualTo((0, 0, 0, false)), "CDP/diagnostic resources at iteration " + iteration);
+        }
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
