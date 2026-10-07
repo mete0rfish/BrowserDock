@@ -56,7 +56,9 @@ class ReferenceRunnerTests(unittest.TestCase):
 
     def check_preflight(self, suite, chrome_version):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            # Windows may return a short (8.3) temp path; main resolves its
+            # binary arguments before invoking processes or recording metadata.
+            root = Path(temporary).resolve()
             chrome = root / "chrome.exe"; chrome.write_bytes(b"controlled binary")
             driver = root / "chromedriver.exe"; driver.write_bytes(b"controlled binary")
             output = root / "results"
@@ -78,7 +80,7 @@ class ReferenceRunnerTests(unittest.TestCase):
                 raise AssertionError(f"Unexpected process: {command}")
 
             arguments = ["run.py", "--suite", suite, "--chrome", str(chrome), "--driver", str(driver), "--results", str(output)]
-            with patch.object(runner.sys, "platform", "win32"), patch.object(runner.sys, "getwindowsversion", return_value=SimpleNamespace(build=22631), create=True), patch.object(runner.sys, "argv", arguments), patch.object(runner.subprocess, "check_output", side_effect=read), patch.object(runner, "invoke", side_effect=BuildReached) as build:
+            with patch.object(runner.sys, "platform", "win32"), patch.object(runner.sys, "getwindowsversion", return_value=SimpleNamespace(build=22631), create=True), patch.object(runner.platform, "platform", return_value="Windows-controlled"), patch.object(runner.platform, "machine", return_value="AMD64"), patch.object(runner.sys, "argv", arguments), patch.object(runner.subprocess, "check_output", side_effect=read), patch.object(runner, "invoke", side_effect=BuildReached) as build:
                 if chrome_version == "154.0.8037.57":
                     with self.assertRaises(BuildReached):
                         runner.main()
