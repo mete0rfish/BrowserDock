@@ -43,6 +43,14 @@ with CDP connections. A documentation-only candidate then passed net481 without
 a runtime fix. Browser/CDP boundary evidence and a separate 40-iteration bound-CDP
 cleanup test narrow the investigation; the root cause is not established yet.
 
+A separate Windows net10 Legacy run failed before attachment creation with a
+sharing violation when reading an already published fixture PID file. Publication
+already uses a closed temporary file followed by rename. The fixture now polls
+only sharing/lock violations (Win32 errors 32/33) within the existing startup
+token and budget; other I/O errors, owner exit and PID mismatch still fail.
+This retries a readiness observation, not a test or a side-effecting command,
+and is not presented as a fix for the final-cleanup timeout.
+
 Use `ci:required` on the PR to run common contracts and Secret scan. If a run fails,
 retain that attempt and inspect its TRX metadata before choosing a fix. Do not
 remove the case, increase timeouts or treat a passing rerun as root-cause evidence.

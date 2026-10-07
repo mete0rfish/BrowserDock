@@ -48,6 +48,10 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Keep command-fixture readiness polling within its original budget when an
+  atomically published PID file has a transient Windows sharing/lock violation.
+  Other I/O failures and owner/PID checks remain errors; no test is rerun.
+
 - Retain bounded owned-process/attachment cleanup diagnostics and preserve
   primary fixture stop errors alongside subsequent cleanup failures (#51).
   The intermittent net481 failure's root cause is still unconfirmed.

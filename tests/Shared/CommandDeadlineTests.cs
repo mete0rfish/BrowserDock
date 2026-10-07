@@ -596,6 +596,65 @@ public sealed class CommandDeadlineTests
         }
     }
 
+    [TestCase(32), TestCase(33)]
+    public async Task ReadinessSharingViolationRetriesOnlyObservationWithinStartupBudget(int code)
+    {
+        var ready = Path.GetTempFileName(); var reads = 0; var entered = Signal(); var release = Signal();
+        using var deadline = new CancellationTokenSource(Watchdog);
+        try
+        {
+            var pending = CommandFixture.ReadReadyAsync(ready, () => true, deadline.Token, async (_, token) =>
+            {
+                if (++reads == 1) throw new IOException("controlled sharing violation", unchecked((int)0x80070000) | code);
+                entered.TrySetResult(true); await TaskCompatibility.WaitAsync(release.Task, token); return "123";
+            });
+            await Bounded(entered.Task); Assert.That(pending.IsCompleted, Is.False);
+            release.TrySetResult(true); Assert.That(await Bounded(pending), Is.EqualTo("123"));
+            Assert.That(reads, Is.EqualTo(2));
+        }
+        finally { release.TrySetResult(true); File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessDoesNotRetryUnrelatedIoFailures()
+    {
+        var ready = Path.GetTempFileName(); var reads = 0;
+        var original = new IOException("controlled unrelated I/O", unchecked((int)0x80070005));
+        try
+        {
+            var error = Assert.ThrowsAsync<IOException>(async () => await CommandFixture.ReadReadyAsync(ready, () => true,
+                CancellationToken.None, (_, _) => { reads++; return Task.FromException<string>(original); }));
+            Assert.That(error, Is.SameAs(original)); Assert.That(reads, Is.EqualTo(1));
+        }
+        finally { File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessSharingViolationPreservesCancellationToken()
+    {
+        var ready = Path.GetTempFileName(); using var caller = new CancellationTokenSource();
+        try
+        {
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await CommandFixture.ReadReadyAsync(ready,
+                () => true, caller.Token, (_, _) => { caller.Cancel(); return Task.FromException<string>(new IOException("controlled", unchecked((int)0x80070020))); }));
+            Assert.That(error!.CancellationToken, Is.EqualTo(caller.Token));
+        }
+        finally { File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessSharingViolationCannotHideExitedOwner()
+    {
+        var ready = Path.GetTempFileName(); var alive = true; var reads = 0;
+        try
+        {
+            Assert.ThrowsAsync<InvalidOperationException>(async () => await CommandFixture.ReadReadyAsync(ready, () => alive,
+                CancellationToken.None, (_, _) => { reads++; alive = false; return Task.FromException<string>(new IOException("controlled", unchecked((int)0x80070020))); }));
+            Assert.That(reads, Is.EqualTo(1));
+        }
+        finally { File.Delete(ready); }
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
@@ -661,12 +720,7 @@ public sealed class CommandDeadlineTests
             try
             {
                 using var startup = new CancellationTokenSource(Watchdog);
-                while (!File.Exists(ready))
-                {
-                    if (!process.Alive) throw new InvalidOperationException("Owned command fixture exited before readiness.");
-                    await Task.Delay(20, startup.Token);
-                }
-                Assert.That(int.Parse(await RuntimeCompatibility.ReadAllTextAsync(ready, startup.Token)), Is.EqualTo(process.Id));
+                Assert.That(int.Parse(await ReadReadyAsync(ready, () => process.Alive, startup.Token)), Is.EqualTo(process.Id));
                 var driver = new RemoteWebDriver(executor, global::BrowserDock.WebDriver.Attachment.CreateOptions(new Uri("ws://127.0.0.1:1/devtools/browser/fixture")).ToCapabilities());
                 return (new Attachment(process, 0, executor, driver), memory);
             }
@@ -678,6 +732,24 @@ public sealed class CommandDeadlineTests
                 process.Dispose(); executor.Dispose(); throw;
             }
             finally { File.Delete(ready); File.Delete(ready + ".tmp"); }
+        }
+        internal static async Task<string> ReadReadyAsync(string ready, Func<bool> alive, CancellationToken token,
+            Func<string, CancellationToken, Task<string>>? read = null)
+        {
+            read ??= RuntimeCompatibility.ReadAllTextAsync;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!alive()) throw new InvalidOperationException("Owned command fixture exited before readiness.");
+                try { if (File.Exists(ready)) return await read(ready, token); }
+                catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+                {
+                    // Publication is atomic, but Windows file scanners can hold
+                    // a transient incompatible handle. Retry only this readiness
+                    // observation, within the existing startup token/budget.
+                }
+                await Task.Delay(20, token);
+            }
         }
         public async ValueTask DisposeAsync()
         {
