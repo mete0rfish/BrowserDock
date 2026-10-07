@@ -41,6 +41,12 @@ internal sealed class GuardedCommands(Browser browser, WebDriverLease lease) : I
         => browser.ClickForLeaseAsync(locator, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => browser.WaitForAbsentForLeaseAsync(locator, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask WaitForHiddenAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForHiddenForLeaseAsync(locator, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask<ElementRef> WaitForTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForTextForLeaseAsync(locator, text, false, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
+    public ValueTask<ElementRef> WaitForExactTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => browser.WaitForTextForLeaseAsync(locator, text, true, options, lease.AttachmentEpoch, () => !lease.Disposed, cancellationToken);
     public ValueTask<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default)
         => Run(d => JsonSerializer.SerializeToElement(ScriptValues.Normalize(d.ExecuteScript(script, (arguments ?? []).Select(x => ScriptValues.Normalize(x)).ToArray()!))), cancellationToken);
     public ValueTask<IReadOnlyList<BrowserCookie>> GetCookiesAsync(CancellationToken cancellationToken = default)

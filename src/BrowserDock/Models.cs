@@ -111,6 +111,9 @@ public interface IBrowserCommands
     ValueTask<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask WaitForHiddenAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<ElementRef> WaitForTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<ElementRef> WaitForExactTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);

@@ -1,5 +1,35 @@
 # Element waits and value reads
 
+`WaitForTextAsync(locator, text)` waits for the first matching element to be
+visible and contain `text` (case-sensitive ordinal comparison).
+`WaitForExactTextAsync` compares both strings after .NET `String.Trim`, without
+changing internal whitespace or case. Input/textarea waits read the live `value`
+property; other elements use WebDriver rendered text. Empty expected text is
+allowed, but the element must still exist and be visible. Both methods return a
+guarded element reference.
+
+`WaitForHiddenAsync` succeeds when the first matching element is not displayed,
+or no element matches. `WaitForAbsentAsync` still requires absence: hiding an
+element alone does not satisfy it. A stale DOM node is reacquired; a missing
+ancestor frame does not prove either condition. Invalid selectors, closed targets,
+transport failures and cancellation remain errors.
+
+These methods are available on Browser and lease commands in Core and Legacy.
+They reuse the existing overall deadline, captured explicit target/frame path,
+polling policy and reference guards. A successful wait describes an observation;
+the element can change again before the next operation. No action is replayed.
+
+```csharp
+var wait = new ElementWaitOptions { Timeout = TimeSpan.FromSeconds(5) };
+var status = await browser.WaitForTextAsync(Locator.Id("status"), "ready", wait);
+await browser.WaitForExactTextAsync(Locator.Id("status"), "ready", wait);
+await browser.WaitForHiddenAsync(Locator.Id("spinner"), wait);
+```
+
+The `IBrowserCommands` interfaces gain three members; custom interface
+implementations must add them. This is an additive library API change but a
+source compatibility change for third-party implementers during 0.x.
+
 Core and Legacy provide the same WebDriver operations. These require an attached
 session; they do not reconnect WebDriver or select a CDP backend implicitly.
 
