@@ -47,6 +47,11 @@ is made from that result. Python uses a standard driver-created browser; Browser
 attaches to the investigation's externally launched Chrome. Only selected
 interaction observations are compared, not their different startup mechanisms.
 
+The Linux host waits for a complete `DevToolsActivePort` file with a valid port
+and browser target path within its existing 60-second startup deadline. An empty
+or partially written file is polled again; Chrome exit and unrelated I/O errors
+fail startup. These readiness contracts also run in the common test suites.
+
 The ordinary click fixture does not exercise intercepted-click fallback or
 uncertain completion. Append is compared at the caret left by typing; deliberate
 caret/selection differences remain intentional deviations. Invalid selector,

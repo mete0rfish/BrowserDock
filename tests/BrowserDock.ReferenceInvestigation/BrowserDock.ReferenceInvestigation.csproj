@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
     <Compile Include="../Shared/HighLevelInteractionReference.cs" Link="HighLevelInteractionReference.cs" />
+    <Compile Include="../Shared/ReferenceEndpointReadiness.cs" Link="ReferenceEndpointReadiness.cs" />
   </ItemGroup>
 </Project>

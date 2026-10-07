@@ -48,6 +48,10 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Wait for complete, valid `DevToolsActivePort` contents in the Linux reference
+  investigation within the original startup deadline, checking Chrome liveness
+  between reads instead of treating file creation as endpoint readiness.
+
 - Read Windows Chrome version metadata without launching Chrome during reference
   runner preflight; retain CLI version queries for the Linux investigation.
 

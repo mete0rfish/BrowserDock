@@ -10,6 +10,8 @@
   <ItemGroup>
     <Compile Include="../Shared/FailureEvidence.cs" Link="Fixtures/FailureEvidence.cs" />
     <Compile Include="../Shared/HighLevelInteractionReference.cs" Link="Fixtures/HighLevelInteractionReference.cs" />
+    <Compile Include="../Shared/ReferenceEndpointReadiness.cs" Link="Fixtures/ReferenceEndpointReadiness.cs" />
+    <Compile Include="../Shared/ReferenceEndpointReadinessTests.cs" Link="ReferenceEndpointReadinessTests.cs" />
     <Compile Include="../Shared/HighLevelReferenceTests.cs" Link="HighLevelReferenceTests.cs" />
     <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
     <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />

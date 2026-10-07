@@ -26,8 +26,7 @@ try
 {
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60)); var token = deadline.Token;
     var activePort = Path.Combine(profile, "DevToolsActivePort");
-    while (!File.Exists(activePort)) { if (chrome.HasExited) throw new InvalidOperationException("Owned Chrome exited before endpoint readiness."); await Task.Delay(20, token); }
-    var lines = await File.ReadAllLinesAsync(activePort, token); var endpoint = new Uri("ws://127.0.0.1:" + lines[0] + lines[1]);
+    var endpoint = await ReferenceEndpointReadiness.WaitAsync(activePort, () => !chrome.HasExited, token);
     var port = BrowserHosting.CandidatePort(); driverProcess = new OwnedProcess(driverPath, new[] { "--port=" + port });
     using var http = BrowserHosting.Http();
     while (true)
