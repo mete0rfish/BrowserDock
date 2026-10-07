@@ -48,6 +48,9 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Read Windows Chrome version metadata without launching Chrome during reference
+  runner preflight; retain CLI version queries for the Linux investigation.
+
 - Keep command-fixture readiness polling within its original budget when an
   atomically published PID file has a transient Windows sharing/lock violation.
   Other I/O failures and owner/PID checks remain errors; no test is rerun.

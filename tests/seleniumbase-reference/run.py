@@ -19,6 +19,29 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 
 
+def windows_product_version(binary):
+    # Keep the caller's literal path out of PowerShell source, including quotes,
+    # wildcard characters and Unicode. Reading metadata never launches Chrome.
+    script = ("$ErrorActionPreference='Stop'; "
+              "[Console]::Out.Write((Get-Item -LiteralPath "
+              "$env:BROWSERDOCK_VERSION_BINARY).VersionInfo.ProductVersion)")
+    return subprocess.check_output(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        env=dict(os.environ, BROWSERDOCK_VERSION_BINARY=str(binary)),
+        text=True, timeout=10).strip()
+
+
+def read_chrome_version(binary):
+    if sys.platform == "win32":
+        text = windows_product_version(binary)
+    else:
+        text = subprocess.check_output([str(binary), "--version"], text=True, timeout=10)
+    version = re.search(r"\d+\.\d+\.\d+\.\d+", text)
+    if version is None:
+        raise RuntimeError("Chrome binary did not return a four-part version")
+    return version.group()
+
+
 def invoke(command, environment, logfile, timeout=600):
     with logfile.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=stream, stderr=subprocess.STDOUT)
@@ -77,16 +100,15 @@ def main():
     version = re.search(r"\d+\.\d+\.\d+\.\d+", version_text)
     if version is None:
         raise RuntimeError("Driver did not return a four-part version")
-    chrome_text = subprocess.check_output([str(chrome), "--version"], text=True, timeout=10)
-    chrome_version = re.search(r"\d+\.\d+\.\d+\.\d+", chrome_text)
-    if chrome_version is None or chrome_version.group() != version.group():
+    chrome_version = read_chrome_version(chrome)
+    if chrome_version != version.group():
         raise RuntimeError("Supply Chrome and ChromeDriver with the same four-part version")
     metadata = {"manifest": manifest, "repeat": args.repeat, "framework": args.framework, "project": args.project,
                 "executionEnvironment": "linux-investigation" if args.linux_investigation else "windows-acceptance",
                 "fixtureId": str(uuid.uuid4()), "seleniumBaseVersion": manifest["seleniumBaseVersion"], "seleniumBaseCommit": manifest["seleniumBaseCommit"],
                 "browserdockCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "workingTree": working_tree,
-                "driverVersion": version.group(), "chromeVersion": chrome_version.group(), "python": sys.version,
+                "driverVersion": version.group(), "chromeVersion": chrome_version, "python": sys.version,
                 "os": platform.platform(), "architecture": platform.machine(),
                 "chromeSha256": hashlib.sha256(chrome.read_bytes()).hexdigest(),
                 "vendorDriverSha256": hashlib.sha256(driver.read_bytes()).hexdigest(),

@@ -25,6 +25,12 @@ version/commit, project/runtime, fixture identity and `dependencies.lock.txt`.
 The comparator rejects missing/mismatched identities, session replacement, failed
 cleanup and matching observations that disagree with the manifest.
 
+Before starting either suite, Chrome and ChromeDriver must have the same
+four-part version. On Windows the runner reads the supplied Chrome binary's
+`VersionInfo.ProductVersion` using Windows PowerShell and a literal path; it
+does not launch Chrome to query its version. Linux investigation uses `--version`.
+Missing version metadata and mismatches remain errors.
+
 For a separately labeled **Linux investigation** using Core or Legacy on net10:
 
 ```sh
@@ -80,6 +86,7 @@ The Python comparator can be tested without installing Chrome or SeleniumBase.
 
 ```sh
 python3 -m unittest discover -s tests/seleniumbase-reference -p test_compare.py -v
+python3 -m unittest discover -s tests/tooling -v
 ```
 
 Comparison covers shared page behavior and browser/session relationships. It does not claim equivalence for all SeleniumBase features, CAPTCHAs, fingerprints, or patch effects. Never overwrite failed results with a rerun. Until browser execution is verified, do not claim this runner passes in that environment.
