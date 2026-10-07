@@ -29,8 +29,11 @@ def wait_for(predicate, timeout=10):
     raise AssertionError("Condition did not become true before deadline")
 
 
-@pytest.mark.parametrize("scenario", MANIFEST["scenarios"], ids=lambda x: x["id"])
+@pytest.mark.parametrize("scenario", [s for s in MANIFEST["scenarios"] if s.get("suite", "baseline") == os.environ.get("BROWSERDOCK_REFERENCE_SUITE", "baseline")], ids=lambda x: x["id"])
 def test_reference(scenario):
+    if scenario.get("suite") == "interactions":
+        from interaction_reference import run_interactions
+        return run_interactions(scenario)
     assert sys.platform == "win32" and sys.getwindowsversion().build >= 22000
     import psutil
     from seleniumbase import Driver

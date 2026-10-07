@@ -64,6 +64,9 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     internal void RecordCleanup(Exception error)
     {
         error.Data["Cleanup.AttachmentTrace"] = cleanupTrace.Snapshot();
+        error.Data["Cleanup.AttachmentSnapshot"] = JsonSerializer.Serialize(new { owner = destruction?.Status.ToString(),
+            processTerminated = Volatile.Read(ref processTerminated), executorDisposed = Volatile.Read(ref executorDisposed),
+            processExited = Volatile.Read(ref processExited), driverDisposed = Volatile.Read(ref driverDisposed), processDisposed = Volatile.Read(ref processDisposed) });
         error.Data["Cleanup.ProcessTrace"] = Process.WaitTrace;
         error.Data["Cleanup.ProcessSnapshot"] = Process.WaitSnapshot;
     }
@@ -173,6 +176,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         {
             if (destruction is null || destruction.IsFaulted || destruction.IsCanceled)
             {
+                cleanupTrace.Add("cleanup-owner-queued");
                 destruction = Task.Run(DestroyCoreAsync);
                 _ = destruction.ContinueWith(t => _ = t.Exception, CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -186,6 +190,7 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     }
     private async Task DestroyCoreAsync()
     {
+        cleanupTrace.Add("cleanup-owner-started");
         var failures = new List<Exception>();
         try { StopIo(); } catch (Exception e) { failures.Add(e); }
         bool canWait;

@@ -4,6 +4,7 @@
   <Project Path="tests/BrowserDock.Tests/BrowserDock.Tests.csproj" />
   <Project Path="tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj" />
   <Project Path="tests/BrowserDock.FixtureHost/BrowserDock.FixtureHost.csproj" />
+  <Project Path="tests/BrowserDock.ReferenceInvestigation/BrowserDock.ReferenceInvestigation.csproj" />
   <Project Path="samples/Lifecycle/Lifecycle.csproj" />
   <Project Path="samples/Framework481/Framework481.csproj" />
   <Project Path="samples/UcLifecycle/UcLifecycle.csproj" />

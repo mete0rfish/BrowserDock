@@ -56,11 +56,11 @@ public sealed class TextWaitTests
             var n when n == DriverCommand.ExecuteScript => Reply(finds > 1),
             var n when n == DriverCommand.GetElementTagName => Reply("div"),
             var n when n == DriverCommand.GetElementText => ++reads switch
-                { 1 => throw new StaleElementReferenceException(), 2 => Reply("READY"), _ => Reply(kind == "text" ? "already ready now" : "\t ready \n") },
+                { 1 => throw new StaleElementReferenceException(), 2 => Reply("READY"), 3 => Reply("almost ready now"), _ => Reply("\t ready \n") },
             _ => Reply(null)
         };
         await Bounded(Wait(f, kind, legacy, lease));
-        Assert.That(finds, Is.EqualTo(4));
+        Assert.That(finds, Is.EqualTo(kind == "text" ? 4 : 5));
         Assert.That(f.Commands.Any(c => c.Name == DriverCommand.ClickElement || c.Name == DriverCommand.ClearElement || c.Name == DriverCommand.SendKeysToElement), Is.False);
         Assert.That(f.Core.Executor.Disposals, Is.Zero);
     }

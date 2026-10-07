@@ -104,7 +104,7 @@ internal sealed class OwnedProcess : IDisposable
         get
         {
             ThreadPool.GetAvailableThreads(out var workers, out var io);
-            return JsonSerializer.Serialize(new { pid = Id, stage = Volatile.Read(ref waitStage),
+            return JsonSerializer.Serialize(new { pid = Id, alive = Alive, stage = Volatile.Read(ref waitStage),
                 stdout = stdout.Status.ToString(), stderr = stderr.Status.ToString(), availableWorkers = workers, availableIo = io });
         }
     }

@@ -22,6 +22,22 @@ internal static class ReferencePages
                 <script>setTimeout(() => { const e=document.createElement('span');e.id='delayed';e.textContent='available';document.body.append(e); }, 150);</script>
                 """,
             "/reference/frame" => "<!doctype html><input id=frame-input>",
+            "/reference/interactions" => """
+                <!doctype html><meta charset="utf-8"><title>High-level reference</title>
+                <div id=status style="display:none">pending</div>
+                <button id=button disabled style="display:none" onclick="window.clicks++">click</button>
+                <input id=input value=initial><div id=marker>visible</div>
+                <iframe id=frame src=/reference/frame></iframe>
+                <script>
+                window.clicks=0;
+                window.armStatus=()=>setTimeout(()=>{statusElement.style.display='block';statusElement.textContent='almost ready now'},150);
+                const statusElement=document.getElementById('status');
+                window.armExact=()=>setTimeout(()=>statusElement.textContent='ready',150);
+                window.armButton=()=>setTimeout(()=>{const b=document.getElementById('button');b.disabled=false;b.style.display='block'},150);
+                window.armHide=()=>setTimeout(()=>document.getElementById('marker').style.display='none',150);
+                window.armRemove=()=>setTimeout(()=>document.getElementById('marker').remove(),150);
+                </script>
+                """,
             "/reference/nested" => "<!doctype html><iframe id=inner src=/reference/frame></iframe>",
             _ => null
         };

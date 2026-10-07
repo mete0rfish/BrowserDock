@@ -48,6 +48,19 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Retain bounded owned-process/attachment cleanup diagnostics and preserve
+  primary fixture stop errors alongside subsequent cleanup failures (#51).
+  The intermittent net481 failure's root cause is still unconfirmed.
+
+- Add Core/Legacy visible-text substring/exact and hidden-or-absent waits (#32),
+  reusing the overall wait deadline and explicit target/frame context. Inputs
+  use their live value. Both `IBrowserCommands` interfaces gain three members;
+  third-party implementations need source updates during 0.x.
+
+- Add the separately selectable SB-05 high-level interaction comparison (#36),
+  with same-commit/version/binary identity checks and an explicit Linux
+  investigation mode. Windows browser acceptance remains separate.
+
 - Report WebDriver JavaScript errors as `ScriptExecutionFailure` in Core and
   Legacy without invalidating a healthy attachment. Preserve the original error
   and command diagnostics; partially completed scripts/input are never replayed.

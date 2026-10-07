@@ -10,8 +10,9 @@ Failed attachment cleanup waits now retain these string-valued exception entries
 
 - `Cleanup.AttachmentTrace`: bounded timestamps and start/end/failure stages for
   process termination, executor disposal, driver disposal and process-handle disposal.
+- `Cleanup.AttachmentSnapshot`: shared cleanup-task state and completed cleanup steps.
 - `Cleanup.ProcessTrace`: process-exit, output-drain, owned-tree and completion stages.
-- `Cleanup.ProcessSnapshot`: owned PID, last wait stage, stdout/stderr task state
+- `Cleanup.ProcessSnapshot`: owned PID/liveness, last wait stage, stdout/stderr task state
   and available thread-pool worker/I/O thread counts at capture time.
 
 The trace excludes process paths, output content, script bodies and exception
