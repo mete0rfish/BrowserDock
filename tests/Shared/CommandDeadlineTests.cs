@@ -766,6 +766,7 @@ public sealed class CommandDeadlineTests
 
             void Record(Exception error)
             {
+                TestFixtures.CleanupThreadEvidence.Capture(error);
                 Browser.RecordCleanup(error);
                 foreach (var item in owned) { item.RecordCleanup(error); TestFixtures.FailureEvidence.Write(error); }
                 failures.Add(error);

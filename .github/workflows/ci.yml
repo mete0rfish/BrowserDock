@@ -77,6 +77,8 @@ jobs:
       - run: dotnet build BrowserDock.slnx --no-restore -m:1
       - name: Framework contracts and result audit
         shell: pwsh
+        env:
+          BROWSERDOCK_CLEANUP_EVIDENCE: ${{ github.workspace }}/.artifacts/common
         run: |
           dotnet test tests/BrowserDock.FrameworkTests/BrowserDock.FrameworkTests.csproj -f net481 --no-build --no-restore --filter 'TestCategory!=Windows' --logger 'trx;LogFileName=framework481.trx' --results-directory .artifacts/common
           if ($LASTEXITCODE -ne 0) { throw 'Framework common tests failed.' }
@@ -101,5 +103,7 @@ jobs:
         if: always()
         with:
           name: results-framework481
-          path: .artifacts/common/*.trx
+          path: |
+            .artifacts/common/*.trx
+            .artifacts/common/cleanup-stacks-*.json
           if-no-files-found: error
