@@ -67,6 +67,10 @@ Another 128-connection case holds an unanswered command and an event callback,
 then releases two interruption callers, disposal and a dispatcher exception
 together. This covers active dispatch and real message traffic as well as an
 idle receive; a passing bounded stress run does not prove absence of a race.
+Two 256-connection cases start just one disposal caller, with a receive pending
+and with or without an unanswered command. Reader/dispatcher failure is then
+driven by the actual transport termination. Disposal runs on an observed worker
+so a synchronous stall before its first returned task cannot block the watchdog.
 
 The net481 common job sets `BROWSERDOCK_CLEANUP_EVIDENCE` to its result directory.
 When a fixture stop or the CDP race exceeds the existing watchdog, a separate

@@ -8,6 +8,49 @@ namespace BrowserDock.Tests;
 [TestFixture]
 public sealed class CdpCleanupRaceTests
 {
+    [TestCase(false), TestCase(true)]
+    public async Task DisposalCompletesWhenReceiveAndOptionalCommandArePending(bool pendingCommand)
+    {
+        using var server = await FrameworkTests.FixtureServer.StartAsync();
+        var endpoint = new UriBuilder(server.Url) { Scheme = "ws", Path = "/cdp",
+            Query = "scenario=" + (pendingCommand ? "cleanup-race" : "hold") }.Uri;
+        for (var iteration = 0; iteration < 256; iteration++)
+        {
+            var connection = new CdpConnection();
+            using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Action<CdpEvent> observe = _ => ready.TrySetResult(true);
+            if (pendingCommand) connection.Event += observe;
+            await connection.ConnectAsync(endpoint, startup.Token);
+            var command = pendingCommand ? connection.SendAsync("Fixture.pending", null, null, startup.Token) : null;
+            if (pendingCommand)
+            {
+                await TaskCompatibility.WaitAsync(ready.Task, TimeSpan.FromSeconds(15));
+                connection.Event -= observe;
+            }
+            // The outer watchdog must remain callable even if synchronous native
+            // cancellation stalls before DisposeAsync returns its first task.
+            var disposal = Task.Run(async () => await connection.DisposeAsync());
+            try
+            {
+                await TaskCompatibility.WaitAsync(disposal, TimeSpan.FromSeconds(15));
+                if (command is not null)
+                {
+                    var error = Assert.ThrowsAsync<BrowserDockException>(async () =>
+                        await TaskCompatibility.WaitAsync(command, TimeSpan.FromSeconds(15)));
+                    Assert.That(error!.Category, Is.EqualTo(ErrorCategory.DevToolsEndpointFailure));
+                }
+                Assert.That(connection.ResourcesForTest, Is.EqualTo((0, 0, 0, false)), "iteration " + iteration);
+            }
+            catch (Exception error)
+            {
+                connection.RecordCleanup(error); CleanupThreadEvidence.Capture(error);
+                TestFixtures.FailureEvidence.Write(error);
+                throw;
+            }
+        }
+    }
+
     [Test]
     public async Task TransportInterruptionAndDisposalCompleteWithPendingReceive()
     {
