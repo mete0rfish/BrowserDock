@@ -96,6 +96,18 @@ internal sealed class OwnedProcess : IDisposable
     private readonly Task stderr;
     private readonly SafeFileHandle? job;
     private readonly string executable;
+    private readonly BoundedDiagnosticTrace waitTrace = new();
+    private string waitStage = "not-started";
+    internal string WaitTrace => waitTrace.Snapshot();
+    internal string WaitSnapshot
+    {
+        get
+        {
+            ThreadPool.GetAvailableThreads(out var workers, out var io);
+            return JsonSerializer.Serialize(new { pid = Id, alive = Alive, stage = Volatile.Read(ref waitStage),
+                stdout = stdout.Status.ToString(), stderr = stderr.Status.ToString(), availableWorkers = workers, availableIo = io });
+        }
+    }
     public int Id { get; }
     public DateTime Created { get; }
     public bool Alive
@@ -147,10 +159,24 @@ internal sealed class OwnedProcess : IDisposable
     }
     public async Task WaitAsync(CancellationToken token)
     {
-        await process.WaitForExitAsync(token).ConfigureAwait(false);
-        await Task.WhenAll(stdout, stderr).WaitAsync(token).ConfigureAwait(false);
-        if (job is not null)
-            while (WindowsJob.ActiveProcesses(job) != 0) await Task.Delay(25, token).ConfigureAwait(false);
+        void Stage(string value) { Volatile.Write(ref waitStage, value); waitTrace.Add(value); }
+        try
+        {
+            Stage("process-exit");
+            await process.WaitForExitAsync(token).ConfigureAwait(false);
+            Stage("output-drain");
+            await Task.WhenAll(stdout, stderr).WaitAsync(token).ConfigureAwait(false);
+            Stage("owned-tree");
+            if (job is not null)
+                while (WindowsJob.ActiveProcesses(job) != 0) await Task.Delay(25, token).ConfigureAwait(false);
+            Stage("completed");
+        }
+        catch (Exception error)
+        {
+            error.Data["Cleanup.ProcessTrace"] = WaitTrace;
+            error.Data["Cleanup.ProcessSnapshot"] = WaitSnapshot;
+            throw;
+        }
     }
     public void Dispose() { job?.Dispose(); process.Dispose(); }
 }

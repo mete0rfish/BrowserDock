@@ -19,6 +19,18 @@ public sealed partial class Browser
     public ValueTask WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => WaitForAbsentForLeaseAsync(locator, options, AttachmentEpoch, () => true, cancellationToken);
 
+    /// <summary>Wait until the first matching element is hidden, or no element matches.</summary>
+    public ValueTask WaitForHiddenAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => WaitForHiddenForLeaseAsync(locator, options, AttachmentEpoch, () => true, cancellationToken);
+
+    /// <summary>Wait for visible text containing a case-sensitive substring; inputs use their live value.</summary>
+    public ValueTask<ElementRef> WaitForTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => WaitForTextForLeaseAsync(locator, text, false, options, AttachmentEpoch, () => true, cancellationToken);
+
+    /// <summary>Wait for visible text matching exactly after String.Trim; inputs use their live value.</summary>
+    public ValueTask<ElementRef> WaitForExactTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+        => WaitForTextForLeaseAsync(locator, text, true, options, AttachmentEpoch, () => true, cancellationToken);
+
     /// <summary>Wait for a displayed, enabled element, then issue one WebDriver click. Never retries a dispatched click.</summary>
     public ValueTask ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
         => ClickForLeaseAsync(locator, options, AttachmentEpoch, () => true, cancellationToken);
@@ -32,7 +44,18 @@ public sealed partial class Browser
     internal async ValueTask WaitForAbsentForLeaseAsync(Locator locator, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
         => _ = await WaitForElementCoreAsync(locator, wait, ElementCondition.Absent, epoch, valid, caller).ConfigureAwait(false);
 
-    private enum ElementCondition { Exists, Visible, Absent, Click, Type, Append }
+    internal async ValueTask WaitForHiddenForLeaseAsync(Locator locator, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
+        => _ = await WaitForElementCoreAsync(locator, wait, ElementCondition.Hidden, epoch, valid, caller).ConfigureAwait(false);
+
+    internal ValueTask<ElementRef> WaitForTextForLeaseAsync(Locator locator, string text, bool exact, ElementWaitOptions? wait, long epoch, Func<bool> valid, CancellationToken caller)
+    {
+        RuntimeCompatibility.NotNull(text, nameof(text));
+        return WaitAsync();
+        async ValueTask<ElementRef> WaitAsync() => (await WaitForElementCoreAsync(locator, wait,
+            exact ? ElementCondition.ExactText : ElementCondition.Text, epoch, valid, caller, text).ConfigureAwait(false))!;
+    }
+
+    private enum ElementCondition { Exists, Visible, Absent, Hidden, Text, ExactText, Click, Type, Append }
     private async ValueTask<ElementRef?> WaitForElementCoreAsync(Locator locator, ElementWaitOptions? wait, ElementCondition condition, long epoch, Func<bool> valid, CancellationToken caller, string? text = null)
     {
         ElementWaitOptions.ValidateLocator(locator);
@@ -66,13 +89,23 @@ public sealed partial class Browser
                         element = driver.FindElement(Attachment.By(locator));
                         elementId = attachment!.Executor.LastFoundElementId
                             ?? throw new BrowserDockException(ErrorCategory.ProtocolError, "W3C find-element response did not contain an element reference.");
+                        if (condition == ElementCondition.Hidden) return (!element.Displayed, (ElementRef?)null);
                         if (condition == ElementCondition.Absent ||
-                            (condition is ElementCondition.Visible or ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Displayed) ||
+                            (condition is ElementCondition.Visible or ElementCondition.Text or ElementCondition.ExactText or ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Displayed) ||
                             (condition is ElementCondition.Click or ElementCondition.Type or ElementCondition.Append && !element.Enabled) ||
                             (condition is ElementCondition.Type or ElementCondition.Append && !IsEditable(driver, element)))
                             return (false, (ElementRef?)null);
+                        if (condition is ElementCondition.Text or ElementCondition.ExactText)
+                        {
+                            var observed = element.TagName.ToLowerInvariant() is "input" or "textarea"
+                                ? element.GetDomProperty("value") ?? string.Empty : element.Text;
+                            var matches = condition == ElementCondition.Text
+                                ? observed.Contains(text!, StringComparison.Ordinal)
+                                : string.Equals(observed.Trim(), text!.Trim(), StringComparison.Ordinal);
+                            if (!matches) return (false, (ElementRef?)null);
+                        }
                     }
-                    catch (NoSuchElementException) { return (condition == ElementCondition.Absent, (ElementRef?)null); }
+                    catch (NoSuchElementException) { return (condition is ElementCondition.Absent or ElementCondition.Hidden, (ElementRef?)null); }
                     catch (StaleElementReferenceException) { return (false, (ElementRef?)null); }
                     if (condition is ElementCondition.Click or ElementCondition.Type or ElementCondition.Append)
                     {

@@ -17,6 +17,13 @@ internal sealed class CdpConnection : IAsyncDisposable
     private long sequence;
     private Task reader = Task.CompletedTask;
     private Task dispatcher = Task.CompletedTask;
+    private readonly BoundedDiagnosticTrace cleanupTrace = new();
+    internal void RecordCleanup(Exception error)
+    {
+        error.Data["Cleanup.CdpTrace"] = cleanupTrace.Snapshot();
+        error.Data["Cleanup.CdpSnapshot"] = JsonSerializer.Serialize(new { reader = reader.Status.ToString(),
+            dispatcher = dispatcher.Status.ToString(), pending = pending.Count });
+    }
     public event Action<CdpEvent>? Event;
     public bool Healthy => socket.State == WebSocketState.Open && !lifetime.IsCancellationRequested;
     internal (int Pending, int Tasks, int Subscribers, bool SocketOpen) ResourcesForTest =>
@@ -80,7 +87,7 @@ internal sealed class CdpConnection : IAsyncDisposable
                 }
             }
         }
-        catch (Exception e) { Fail(e); }
+        catch (Exception e) { Fail(e, "reader"); }
         finally { events.Writer.TryComplete(); }
     }
     private async Task DispatchAsync()
@@ -90,17 +97,20 @@ internal sealed class CdpConnection : IAsyncDisposable
             while (await events.Reader.WaitToReadAsync(lifetime.Token).ConfigureAwait(false))
                 while (events.Reader.TryRead(out var item)) Event?.Invoke(item);
         }
-        catch (Exception e) { Fail(e); }
+        catch (Exception e) { Fail(e, "dispatcher"); }
     }
-    private void Fail(Exception error)
+    private void Fail(Exception error, string origin = "caller")
     {
-        lifetime.Cancel(); socket.Abort();
+        cleanupTrace.Add(origin + "-cancel-start"); lifetime.Cancel(); cleanupTrace.Add(origin + "-cancel-end");
+        cleanupTrace.Add(origin + "-abort-start"); socket.Abort(); cleanupTrace.Add(origin + "-abort-end");
         foreach (var request in pending.Values) request.TrySetException(new BrowserDockException(ErrorCategory.DevToolsEndpointFailure, "CDP transport was interrupted.", error));
     }
     public async ValueTask DisposeAsync()
     {
-        Fail(new ObjectDisposedException(nameof(CdpConnection)));
+        Fail(new ObjectDisposedException(nameof(CdpConnection)), "dispose");
+        cleanupTrace.Add("pumps-wait-start");
         await Task.WhenAll(reader, dispatcher).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        cleanupTrace.Add("pumps-wait-end");
         socket.Dispose(); lifetime.Dispose();
     }
 }
@@ -128,6 +138,7 @@ internal sealed class CdpController(Uri endpoint, IReadOnlyList<string> scripts,
     private long eventRevision;
     public bool Healthy => connection.Healthy;
     internal (int Pending, int Tasks, int Subscribers, bool SocketOpen) ResourcesForTest => connection.ResourcesForTest;
+    internal void RecordCleanup(Exception error) => connection.RecordCleanup(error);
     internal void InterruptForTest() => connection.InterruptForTest();
     public TargetKey? Controlled { get; private set; }
     public bool ExplicitSelection { get; private set; }

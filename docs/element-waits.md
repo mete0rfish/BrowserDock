@@ -1,5 +1,35 @@
 # Element waits and value reads
 
+`WaitForTextAsync(locator, text)` waits for the first matching element to be
+visible and contain `text` (case-sensitive ordinal comparison).
+`WaitForExactTextAsync` compares both strings after .NET `String.Trim`, without
+changing internal whitespace or case. Input/textarea waits read the live `value`
+property; other elements use WebDriver rendered text. Empty expected text is
+allowed, but the element must still exist and be visible. Both methods return a
+guarded element reference.
+
+`WaitForHiddenAsync` succeeds when the first matching element is not displayed,
+or no element matches. `WaitForAbsentAsync` still requires absence: hiding an
+element alone does not satisfy it. A stale DOM node is reacquired; a missing
+ancestor frame does not prove either condition. Invalid selectors, closed targets,
+transport failures and cancellation remain errors.
+
+These methods are available on Browser and lease commands in Core and Legacy.
+They reuse the existing overall deadline, captured explicit target/frame path,
+polling policy and reference guards. A successful wait describes an observation;
+the element can change again before the next operation. No action is replayed.
+
+```csharp
+var wait = new ElementWaitOptions { Timeout = TimeSpan.FromSeconds(5) };
+var status = await browser.WaitForTextAsync(Locator.Id("status"), "ready", wait);
+await browser.WaitForExactTextAsync(Locator.Id("status"), "ready", wait);
+await browser.WaitForHiddenAsync(Locator.Id("spinner"), wait);
+```
+
+The `IBrowserCommands` interfaces gain three members; custom interface
+implementations must add them. This is an additive library API change but a
+source compatibility change for third-party implementers during 0.x.
+
 Core and Legacy provide the same WebDriver operations. These require an attached
 session; they do not reconnect WebDriver or select a CDP backend implicitly.
 
@@ -35,7 +65,7 @@ string? current = await input.GetValueAsync(cancellationToken);
 await browser.WaitForAbsentAsync(Locator.Css(".loading"), cancellationToken: cancellationToken);
 ```
 
-All three waits are also available through `lease.Commands`. A disposed lease
+All these waits are also available through `lease.Commands`. A disposed lease
 cannot start or continue a wait. An element returned by a wait follows the same
 reference lifetime as an element returned by `FindAsync`.
 
@@ -95,9 +125,16 @@ await browser.WaitForAbsentAsync(Locator.Css(".loading"), null, cancellationToke
 The [guarded click](element-clicks.md) and [text input](element-input.md) APIs build on these wait contracts.
 
 This is the waits/value-read slice of [#32](https://github.com/mete0rfish/BrowserDock/issues/32).
-Hidden-or-absent waits, text waits, multiple-element search, press-keys helpers,
-ambient-frame compatibility, screenshots and assertion helpers remain follow-up
-work. No SeleniumBase equivalence claim is added by this slice.
+Multiple-element search, press-keys helpers, ambient-frame compatibility,
+screenshots and assertion helpers remain follow-up work. No whole-contract
+SeleniumBase equivalence claim is added by this slice.
+
+[TextWaitTests](../tests/Shared/TextWaitTests.cs) covers visible substring/exact
+matching, live input/textarea values, hidden-or-removed observations, stale nodes,
+missing ancestor frames, queued cancellation and attachment replacement. The
+[SB-05 comparison](../tests/seleniumbase-reference/README.md#high-level-interactions-sb-05)
+adds selected high-level SeleniumBase interaction evidence, with Windows
+acceptance distinguished from the explicit Linux investigation.
 
 [ElementWaitTests](../tests/Shared/ElementWaitTests.cs) exercises the real Browser
 command/lease path and Selenium serialization against a controlled W3C executor

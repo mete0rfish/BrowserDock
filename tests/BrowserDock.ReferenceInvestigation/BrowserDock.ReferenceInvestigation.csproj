@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>BrowserDock.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/BrowserDock.Legacy/BrowserDock.Legacy.csproj" />
+    <Compile Include="../Shared/HighLevelInteractionReference.cs" Link="HighLevelInteractionReference.cs" />
+    <Compile Include="../Shared/ReferenceEndpointReadiness.cs" Link="ReferenceEndpointReadiness.cs" />
+  </ItemGroup>
+</Project>

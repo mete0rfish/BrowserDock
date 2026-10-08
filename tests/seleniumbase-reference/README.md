@@ -1,5 +1,68 @@
 # SeleniumBase comparison tests
 
+## High-level interactions (SB-05)
+
+The **interactions** suite adds SB-05 independently of the SB-01–04 baseline.
+It calls BrowserDock's high-level click/type/append/text/hidden/absence APIs and
+the corresponding SeleniumBase DriverMethods bindings (`Driver.type` binds to
+`update_text`). SeleniumBase DriverMethods wraps a normal Selenium driver launched
+with the supplied vendor binary: no UC patching or implicit driver downloads.
+The scenario includes delayed visibility/readiness, exactly one click, replace
+then append, an input value differing from its HTML attribute, explicit frame
+input/value reads followed by a top-level operation, and hiding before removal.
+
+Use a clean, committed candidate and fresh result directories:
+
+```powershell
+python tests/seleniumbase-reference/run.py --suite interactions --project core --framework net10.0 --chrome C:\Chrome\chrome.exe --driver C:\Chrome\chromedriver.exe --results .artifacts/interactions-core --repeat 3
+python tests/seleniumbase-reference/run.py --suite interactions --project legacy --framework net481 --chrome C:\Chrome\chrome.exe --driver C:\Chrome\chromedriver.exe --results .artifacts/interactions-legacy --repeat 3
+```
+
+The Windows interaction suite is also available on Core net8.0 and Legacy
+net8.0/net10.0. The runner checks both binary and actual browser versions, records
+Chrome/vendor/executed-driver hashes, the BrowserDock commit, pinned SeleniumBase
+version/commit, project/runtime, fixture identity and `dependencies.lock.txt`.
+The comparator rejects missing/mismatched identities, session replacement, failed
+cleanup and matching observations that disagree with the manifest.
+
+Before starting either suite, Chrome and ChromeDriver must have the same
+four-part version. On Windows the runner reads the supplied Chrome binary's
+`VersionInfo.ProductVersion` using Windows PowerShell and a literal path; it
+does not launch Chrome to query its version. Linux investigation uses `--version`.
+Missing version metadata and mismatches remain errors.
+
+For a separately labeled **Linux investigation** using Core or Legacy on net10:
+
+```sh
+python tests/seleniumbase-reference/run.py --suite interactions --linux-investigation --project core --framework net10.0 --chrome /path/to/chromium --driver /path/to/chromedriver --results /tmp/interactions-core --repeat 3
+# Repeat with --project legacy and a different result directory.
+```
+
+This launches a test-only .NET host that explicitly owns headless Chrome and its
+driver, using the same interaction scenario as the optional Windows test. It does
+not extend BrowserDock's supported Windows startup API or establish Windows,
+net481 browser, UC, patching or native-input acceptance. Linux zombie processes
+are considered exited for this investigation; no profile-handle/Windows Job claim
+is made from that result. Python uses a standard driver-created browser; BrowserDock
+attaches to the investigation's externally launched Chrome. Only selected
+interaction observations are compared, not their different startup mechanisms.
+
+The Linux host waits for a complete `DevToolsActivePort` file with a valid port
+and browser target path within its existing 60-second startup deadline. An empty
+or partially written file is polled again; Chrome exit and unrelated I/O errors
+fail startup. These readiness contracts also run in the common test suites.
+
+The ordinary click fixture does not exercise intercepted-click fallback or
+uncertain completion. Append is compared at the caret left by typing; deliberate
+caret/selection differences remain intentional deviations. Invalid selector,
+missing-frame, stale-reference, transport, timeout and cancellation behavior is
+covered separately by .NET contract tests; SeleniumBase's broad exception-to-hidden
+behavior is deliberately not copied. Exact text uses .NET `String.Trim`; Python
+`str.strip` also strips C0 separators U+001C–U+001F, which are outside this selected
+fixture. A passing SB-05 result does not close #32 or #36.
+
+## Baseline comparison (SB-01–04)
+
 Run on an interactive Windows 11 x64 desktop. The shared fixture covers ordinary interaction (SB-01), same-document disconnect/connect (SB-02), detached navigation replacing a tab (SB-03), and CDP-only navigation (SB-04). It does not visit external sites.
 
 **Current coverage:** The .NET SB-03/SB-04 cases are removed pending diagnosis and
@@ -28,6 +91,7 @@ The Python comparator can be tested without installing Chrome or SeleniumBase.
 
 ```sh
 python3 -m unittest discover -s tests/seleniumbase-reference -p test_compare.py -v
+python3 -m unittest discover -s tests/tooling -v
 ```
 
 Comparison covers shared page behavior and browser/session relationships. It does not claim equivalence for all SeleniumBase features, CAPTCHAs, fingerprints, or patch effects. Never overwrite failed results with a rerun. Until browser execution is verified, do not claim this runner passes in that environment.

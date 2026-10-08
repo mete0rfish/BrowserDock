@@ -60,6 +60,16 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
     private readonly object ioSync = new();
     private bool processTerminated, executorDisposed, processExited, driverDisposed, processDisposed;
     private Task? destruction;
+    private readonly BoundedDiagnosticTrace cleanupTrace = new();
+    internal void RecordCleanup(Exception error)
+    {
+        error.Data["Cleanup.AttachmentTrace"] = cleanupTrace.Snapshot();
+        error.Data["Cleanup.AttachmentSnapshot"] = JsonSerializer.Serialize(new { owner = destruction?.Status.ToString(),
+            processTerminated = Volatile.Read(ref processTerminated), executorDisposed = Volatile.Read(ref executorDisposed),
+            processExited = Volatile.Read(ref processExited), driverDisposed = Volatile.Read(ref driverDisposed), processDisposed = Volatile.Read(ref processDisposed) });
+        error.Data["Cleanup.ProcessTrace"] = Process.WaitTrace;
+        error.Data["Cleanup.ProcessSnapshot"] = Process.WaitSnapshot;
+    }
     internal Func<Task>? BeforeDispatchForTest { get; set; }
     internal Task? InvocationForTest { get; private set; }
     internal Action? TerminateForTest { get; set; }
@@ -84,10 +94,20 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
             Executor.Detach();
             var failures = new List<Exception>();
             if (!processTerminated)
-                try { if (TerminateForTest is { } terminate) terminate(); else Process.Terminate(); processTerminated = true; }
-                catch (Exception e) { failures.Add(e); }
+                try
+                {
+                    cleanupTrace.Add("process-terminate-start");
+                    if (TerminateForTest is { } terminate) terminate(); else Process.Terminate();
+                    processTerminated = true; cleanupTrace.Add("process-terminate-end");
+                }
+                catch (Exception e) { cleanupTrace.Add("process-terminate-failed", ("exception", e.GetType().Name)); failures.Add(e); }
             if (!executorDisposed)
-                try { Executor.Dispose(); executorDisposed = true; } catch (Exception e) { failures.Add(e); }
+                try
+                {
+                    cleanupTrace.Add("executor-dispose-start");
+                    Executor.Dispose(); executorDisposed = true; cleanupTrace.Add("executor-dispose-end");
+                }
+                catch (Exception e) { cleanupTrace.Add("executor-dispose-failed", ("exception", e.GetType().Name)); failures.Add(e); }
             if (failures.Count != 0) throw new AggregateException(failures);
         }
     }
@@ -149,13 +169,14 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
                 return JsonSerializer.SerializeToElement(response.Value);
             }, ct), StopIo, token).ConfigureAwait(false);
     }
-    public Task DestroyAsync(CancellationToken token)
+    public async Task DestroyAsync(CancellationToken token)
     {
         Task owned;
         lock (cleanupSync)
         {
             if (destruction is null || destruction.IsFaulted || destruction.IsCanceled)
             {
+                cleanupTrace.Add("cleanup-owner-queued");
                 destruction = Task.Run(DestroyCoreAsync);
                 _ = destruction.ContinueWith(t => _ = t.Exception, CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -164,10 +185,12 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
         }
         // A caller's budget bounds its wait. The shared owner finishes disposal;
         // Stop/Dispose can join that same work with their own remaining budget.
-        return owned.WaitAsync(token);
+        try { await owned.WaitAsync(token).ConfigureAwait(false); }
+        catch (Exception error) { RecordCleanup(error); throw; }
     }
     private async Task DestroyCoreAsync()
     {
+        cleanupTrace.Add("cleanup-owner-started");
         var failures = new List<Exception>();
         try { StopIo(); } catch (Exception e) { failures.Add(e); }
         bool canWait;
@@ -176,12 +199,21 @@ internal sealed class Attachment(OwnedProcess process, int port, DetachAwareComm
             try { await Process.WaitAsync(CancellationToken.None).ConfigureAwait(false); processExited = true; }
             catch (Exception e) { failures.Add(e); }
         if (!driverDisposed)
-            try { await Task.Run(Driver.Dispose).ConfigureAwait(false); driverDisposed = true; }
-            catch (Exception e) { failures.Add(e); }
+            try
+            {
+                cleanupTrace.Add("driver-dispose-start");
+                await Task.Run(Driver.Dispose).ConfigureAwait(false); driverDisposed = true; cleanupTrace.Add("driver-dispose-end");
+            }
+            catch (Exception e) { cleanupTrace.Add("driver-dispose-failed", ("exception", e.GetType().Name)); failures.Add(e); }
         // Keep the process handle if termination failed while it is still alive,
         // so a later cleanup owner can retry the remaining work.
         if (processExited && !processDisposed)
-            try { Process.Dispose(); processDisposed = true; } catch (Exception e) { failures.Add(e); }
+            try
+            {
+                cleanupTrace.Add("process-dispose-start");
+                Process.Dispose(); processDisposed = true; cleanupTrace.Add("process-dispose-end");
+            }
+            catch (Exception e) { cleanupTrace.Add("process-dispose-failed", ("exception", e.GetType().Name)); failures.Add(e); }
         if (failures.Count != 0) throw new AggregateException(failures);
     }
     public static async Task<Attachment> CreateAsync(string path, Uri cdp, BrowserTimeouts timeouts, CancellationToken token)

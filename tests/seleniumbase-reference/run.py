@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import queue
 import re
@@ -10,11 +11,35 @@ import subprocess
 import sys
 import threading
 import urllib.request
+import uuid
 
 from compare import compare
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
+
+
+def windows_product_version(binary):
+    # Keep the caller's literal path out of PowerShell source, including quotes,
+    # wildcard characters and Unicode. Reading metadata never launches Chrome.
+    script = ("$ErrorActionPreference='Stop'; "
+              "[Console]::Out.Write((Get-Item -LiteralPath "
+              "$env:BROWSERDOCK_VERSION_BINARY).VersionInfo.ProductVersion)")
+    return subprocess.check_output(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        env=dict(os.environ, BROWSERDOCK_VERSION_BINARY=str(binary)),
+        text=True, timeout=10).strip()
+
+
+def read_chrome_version(binary):
+    if sys.platform == "win32":
+        text = windows_product_version(binary)
+    else:
+        text = subprocess.check_output([str(binary), "--version"], text=True, timeout=10)
+    version = re.search(r"\d+\.\d+\.\d+\.\d+", text)
+    if version is None:
+        raise RuntimeError("Chrome binary did not return a four-part version")
+    return version.group()
 
 
 def invoke(command, environment, logfile, timeout=600):
@@ -45,30 +70,55 @@ def main():
     parser.add_argument("--driver", required=True, type=Path)
     parser.add_argument("--results", required=True, type=Path)
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument("--framework", choices=("net8.0", "net10.0"), default="net10.0")
+    parser.add_argument("--framework", choices=("net481", "net8.0", "net10.0"), default="net10.0")
+    parser.add_argument("--suite", choices=("baseline", "interactions"), default="baseline")
+    parser.add_argument("--project", choices=("core", "legacy"), default="core")
+    parser.add_argument("--linux-investigation", action="store_true", help="SB-05 local headless investigation, not Windows acceptance")
     args = parser.parse_args()
-    if sys.platform != "win32" or sys.getwindowsversion().build < 22000:
+    if args.linux_investigation:
+        if not sys.platform.startswith("linux") or args.suite != "interactions" or args.framework != "net10.0":
+            parser.error("Linux investigation requires --suite interactions --framework net10.0 on Linux")
+    elif sys.platform != "win32" or sys.getwindowsversion().build < 22000:
         parser.error("Use Windows 11 x64 with an interactive desktop")
+    if args.suite == "baseline" and args.project != "core":
+        parser.error("The baseline reference tests currently target Core")
+    if args.project == "core" and args.framework == "net481":
+        parser.error("Core does not target net481")
     if args.repeat < 1:
         parser.error("--repeat must be positive")
     chrome, driver = args.chrome.resolve(strict=True), args.driver.resolve(strict=True)
     output = args.results.resolve()
     output.mkdir(parents=True, exist_ok=False)
     manifest = json.loads((HERE / "scenarios.json").read_text(encoding="utf-8"))
+    manifest["scenarios"] = [s for s in manifest["scenarios"] if s.get("suite", "baseline") == args.suite]
+    if not manifest["scenarios"]:
+        raise RuntimeError("Selected comparison suite is empty")
+    working_tree = subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True)
+    if args.suite == "interactions" and working_tree:
+        raise RuntimeError("Commit the candidate before recording same-commit interaction evidence")
     version_text = subprocess.check_output([str(driver), "--version"], text=True, timeout=10)
     version = re.search(r"\d+\.\d+\.\d+\.\d+", version_text)
     if version is None:
         raise RuntimeError("Driver did not return a four-part version")
-    metadata = {"manifest": manifest, "repeat": args.repeat, "framework": args.framework,
+    chrome_version = read_chrome_version(chrome)
+    if chrome_version != version.group():
+        raise RuntimeError("Supply Chrome and ChromeDriver with the same four-part version")
+    metadata = {"manifest": manifest, "repeat": args.repeat, "framework": args.framework, "project": args.project,
+                "executionEnvironment": "linux-investigation" if args.linux_investigation else "windows-acceptance",
+                "fixtureId": str(uuid.uuid4()), "seleniumBaseVersion": manifest["seleniumBaseVersion"], "seleniumBaseCommit": manifest["seleniumBaseCommit"],
                 "browserdockCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                "workingTree": subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
-                "driverVersion": version.group(), "python": sys.version,
+                "workingTree": working_tree,
+                "driverVersion": version.group(), "chromeVersion": chrome_version, "python": sys.version,
+                "os": platform.platform(), "architecture": platform.machine(),
                 "chromeSha256": hashlib.sha256(chrome.read_bytes()).hexdigest(),
                 "vendorDriverSha256": hashlib.sha256(driver.read_bytes()).hexdigest(),
                 "dependencies": subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True)}
     (output / "fixture.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (output / "dependencies.lock.txt").write_text(metadata["dependencies"], encoding="utf-8")
     environment = dict(os.environ, BROWSERDOCK_CHROME=str(chrome), BROWSERDOCK_DRIVER=str(driver),
-                       BROWSERDOCK_REFERENCE_DRIVER_VERSION=version.group())
+                       BROWSERDOCK_REFERENCE_DRIVER_VERSION=version.group(), BROWSERDOCK_REFERENCE_SUITE=args.suite,
+                       BROWSERDOCK_REFERENCE_FACADE=args.project, BROWSERDOCK_REFERENCE_INVESTIGATION="linux" if args.linux_investigation else "",
+                       BROWSERDOCK_REFERENCE_MANIFEST=str(HERE / "scenarios.json"), BROWSERDOCK_REFERENCE_METADATA=str(output / "fixture.json"))
     for command, name in ((["dotnet", "restore", "BrowserDock.slnx"], "restore"),
                           (["dotnet", "build", "BrowserDock.slnx", "--no-restore", "-m:1"], "build")):
         if invoke(command, environment, output / f"{name}.log"):
@@ -98,17 +148,22 @@ def main():
                 run = output / f"run-{repeat:02}"
                 run.mkdir()
                 environment["BROWSERDOCK_REFERENCE_RESULTS"] = str(run)
+                if args.linux_investigation:
+                    dotnet_command = ["dotnet", "run", "--project", "tests/BrowserDock.ReferenceInvestigation", "--no-build", "--no-restore"]
+                else:
+                    project = "BrowserDock.Tests" if args.project == "core" else "BrowserDock.FrameworkTests"
+                    category = "Reference" if args.suite == "baseline" else "ReferenceInteraction"
+                    dotnet_command = ["dotnet", "test", "tests/" + project, "-f", args.framework, "--no-build", "--no-restore", "--filter", "TestCategory=" + category,
+                                      "--logger", "trx;LogFileName=browserdock.trx", "--results-directory", str(run)]
                 commands = [
                     ([sys.executable, "-m", "pytest", str(HERE / "test_reference.py"), "-v",
                       f"--junitxml={run / 'seleniumbase.xml'}"], "seleniumbase"),
-                    (["dotnet", "test", "tests/BrowserDock.Tests", "-f", args.framework, "--no-build", "--no-restore",
-                      "--filter", "TestCategory=Reference", "--logger", "trx;LogFileName=browserdock.trx",
-                      "--results-directory", str(run)], "browserdock")]
+                    (dotnet_command, "browserdock")]
                 for command, name in commands:
                     code = invoke(command, environment, run / f"{name}.log")
                     if code:
                         errors.append(f"run-{repeat:02}/{name}: exit {code}")
-                errors.extend(f"run-{repeat:02}/{error}" for error in compare(run, manifest))
+                errors.extend(f"run-{repeat:02}/{error}" for error in compare(run, manifest, metadata))
         except Exception as error:
             errors.append(f"Runner failed: {type(error).__name__}: {error}")
         finally:

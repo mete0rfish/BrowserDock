@@ -12,6 +12,9 @@ public interface IBrowserCommands
     Task<ElementRef> WaitForExistsAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task<ElementRef> WaitForVisibleAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task WaitForAbsentAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task WaitForHiddenAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task<ElementRef> WaitForTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
+    Task<ElementRef> WaitForExactTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task ClickAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task TypeAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
     Task SendKeysAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default);
@@ -72,6 +75,26 @@ internal sealed class GuardedCommands(Core.IBrowserCommands inner) : IBrowserCom
         if (locator is null) throw new ArgumentNullException(nameof(locator));
         var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
         return Api.Call(() => inner.WaitForAbsentAsync(coreLocator, snapshot, cancellationToken).AsTask());
+    }
+    public Task WaitForHiddenAsync(Locator locator, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(() => inner.WaitForHiddenAsync(coreLocator, snapshot, cancellationToken).AsTask());
+    }
+    public Task<ElementRef> WaitForTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(async () => new ElementRef(await inner.WaitForTextAsync(coreLocator, text, snapshot, cancellationToken).ConfigureAwait(false)));
+    }
+    public Task<ElementRef> WaitForExactTextAsync(Locator locator, string text, ElementWaitOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (locator is null) throw new ArgumentNullException(nameof(locator));
+        if (text is null) throw new ArgumentNullException(nameof(text));
+        var coreLocator = locator.ToCore(); var snapshot = options?.Snapshot();
+        return Api.Call(async () => new ElementRef(await inner.WaitForExactTextAsync(coreLocator, text, snapshot, cancellationToken).ConfigureAwait(false)));
     }
     public Task<JsonElement> ExecuteScriptAsync(string script, IReadOnlyList<object?>? arguments = null, CancellationToken cancellationToken = default)
     {

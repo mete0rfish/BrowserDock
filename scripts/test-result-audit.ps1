@@ -40,7 +40,7 @@ try {
     Assert-Rejected { & "$PSScriptRoot/assert-test-results.ps1" -Path $path -RequiredClasses Required }
     Remove-Item $path
     Assert-Rejected { & "$PSScriptRoot/assert-test-results.ps1" -Path $path }
-    $common = @('BrowserDock.Tests.UcWorkflowTests','BrowserDock.Tests.UcLaunchProfileTests','BrowserDock.Tests.UcScriptRegistrationTests')
+    $common = @('BrowserDock.Tests.UcWorkflowTests','BrowserDock.Tests.UcLaunchProfileTests','BrowserDock.Tests.UcScriptRegistrationTests','BrowserDock.Tests.CommandDeadlineTests','BrowserDock.Tests.TextWaitTests')
     $uc = @('BrowserDock.Tests.UcBrowserTests','BrowserDock.Tests.UcLaunchProfileBrowserTests')
     foreach ($project in 'Core','Legacy') {
         foreach ($suite in 'Common','Browser') {

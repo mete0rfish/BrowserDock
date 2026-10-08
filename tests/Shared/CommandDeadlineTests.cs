@@ -519,6 +519,142 @@ public sealed class CommandDeadlineTests
         Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(1), "Successful cleanup steps must not repeat.");
     }
 
+    [TestCase("terminate"), TestCase("executor")]
+    public async Task CanceledCleanupWaitReportsBlockedStageAndRetainsItsOwner(string stage)
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        var entered = Signal(); var release = Signal();
+        void Block() { entered.TrySetResult(true); release.Task.GetAwaiter().GetResult(); }
+        if (stage == "terminate") fixture.Attachment.TerminateForTest = () => { Block(); fixture.Attachment.Process.Terminate(); };
+        else fixture.Executor.DisposeHook = Block;
+        using var caller = new CancellationTokenSource();
+        var waiting = fixture.Attachment.DestroyAsync(caller.Token);
+        try
+        {
+            await Bounded(entered.Task);
+            caller.Cancel();
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await Bounded(waiting))!;
+            Assert.That(error.CancellationToken, Is.EqualTo(caller.Token));
+            using var trace = JsonDocument.Parse((string)error.Data["Cleanup.AttachmentTrace"]!);
+            var last = trace.RootElement.EnumerateArray().Last().GetProperty("event").GetString();
+            Assert.That(last, Is.EqualTo(stage == "terminate" ? "process-terminate-start" : "executor-dispose-start"));
+            using var snapshot = JsonDocument.Parse((string)error.Data["Cleanup.ProcessSnapshot"]!);
+            Assert.That(snapshot.RootElement.GetProperty("pid").GetInt32(), Is.EqualTo(fixture.Attachment.Process.Id));
+            Assert.That(snapshot.RootElement.GetProperty("stdout").GetString(), Is.Not.Empty);
+            var core = new BrowserDockException(ErrorCategory.CleanupIncomplete, "cleanup");
+            fixture.Attachment.RecordCleanup(core);
+            Assert.That(Legacy.Api.Translate(core).Data["Cleanup.AttachmentTrace"], Is.EqualTo(core.Data["Cleanup.AttachmentTrace"]));
+        }
+        finally { release.TrySetResult(true); }
+        await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None));
+        Assert.That(fixture.Executor.DisposeCalls, Is.EqualTo(1));
+        Assert.That(fixture.Attachment.Process.Alive, Is.False);
+    }
+
+    [Test]
+    public async Task CleanupDiagnosticsExcludeExceptionMessagesAndProcessPaths()
+    {
+        await using var fixture = await CommandFixture.StartAsync();
+        fixture.Executor.DisposeFailure = new InvalidOperationException("private-script secret-cookie /private/profile");
+        var error = Assert.CatchAsync<AggregateException>(async () => await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None)))!;
+        var evidence = string.Join(" ", error.Data.Values.Cast<object>());
+        Assert.That(evidence, Does.Not.Contain("private-script").And.Not.Contain("secret-cookie").And.Not.Contain("/private/profile"));
+        Assert.That(evidence, Does.Contain("executor-dispose-failed").And.Contain("InvalidOperationException"));
+        fixture.Executor.DisposeFailure = null;
+        await Bounded(fixture.Attachment.DestroyAsync(CancellationToken.None));
+    }
+
+    [Test]
+    public async Task RepeatedOwnedAttachmentCleanupCompletesExitAndBothOutputDrains()
+    {
+        // A portable controlled repetition, also executed by the net481 CI job.
+        // A pass does not identify the historical intermittent failure's cause.
+        for (var iteration = 0; iteration < 20; iteration++)
+        {
+            await using var fixture = await CommandFixture.StartAsync();
+            await Bounded(fixture.Browser.StopAsync().AsTask());
+            using var snapshot = JsonDocument.Parse(fixture.Attachment.Process.WaitSnapshot);
+            Assert.That(snapshot.RootElement.GetProperty("stage").GetString(), Is.EqualTo("completed"), "iteration " + iteration);
+            Assert.That(snapshot.RootElement.GetProperty("stdout").GetString(), Is.EqualTo("RanToCompletion"));
+            Assert.That(snapshot.RootElement.GetProperty("stderr").GetString(), Is.EqualTo("RanToCompletion"));
+        }
+    }
+
+    [Test]
+    public async Task RepeatedBoundCdpCleanupCompletesAllPumps()
+    {
+        // The reproduced net481 timeout occurred after driver cleanup completed,
+        // in fixtures with a live CDP connection. Keep this distinct from the
+        // process-only repetition and retain the existing per-operation budget.
+        for (var iteration = 0; iteration < 40; iteration++)
+        {
+            await using var fixture = await ElementWaitTests.Fixture.StartAsync();
+            var resources = fixture.Core.Browser.CaptureResourcesForTest();
+            await Bounded(fixture.Core.Browser.StopAsync().AsTask());
+            Assert.That(fixture.Core.Browser.State, Is.EqualTo(BrowserState.Stopped), "iteration " + iteration);
+            Assert.That(resources(), Is.EqualTo((0, 0, 0, false)), "CDP/diagnostic resources at iteration " + iteration);
+        }
+    }
+
+    [TestCase(32), TestCase(33)]
+    public async Task ReadinessSharingViolationRetriesOnlyObservationWithinStartupBudget(int code)
+    {
+        var ready = Path.GetTempFileName(); var reads = 0; var entered = Signal(); var release = Signal();
+        using var deadline = new CancellationTokenSource(Watchdog);
+        try
+        {
+            var pending = CommandFixture.ReadReadyAsync(ready, () => true, deadline.Token, async (_, token) =>
+            {
+                if (++reads == 1) throw new IOException("controlled sharing violation", unchecked((int)0x80070000) | code);
+                entered.TrySetResult(true); await TaskCompatibility.WaitAsync(release.Task, token); return "123";
+            });
+            await Bounded(entered.Task); Assert.That(pending.IsCompleted, Is.False);
+            release.TrySetResult(true); Assert.That(await Bounded(pending), Is.EqualTo("123"));
+            Assert.That(reads, Is.EqualTo(2));
+        }
+        finally { release.TrySetResult(true); File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessDoesNotRetryUnrelatedIoFailures()
+    {
+        var ready = Path.GetTempFileName(); var reads = 0;
+        var original = new IOException("controlled unrelated I/O", unchecked((int)0x80070005));
+        try
+        {
+            var error = Assert.ThrowsAsync<IOException>(async () => await CommandFixture.ReadReadyAsync(ready, () => true,
+                CancellationToken.None, (_, _) => { reads++; return Task.FromException<string>(original); }));
+            Assert.That(error, Is.SameAs(original)); Assert.That(reads, Is.EqualTo(1));
+        }
+        finally { File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessSharingViolationPreservesCancellationToken()
+    {
+        var ready = Path.GetTempFileName(); using var caller = new CancellationTokenSource();
+        try
+        {
+            var error = Assert.CatchAsync<OperationCanceledException>(async () => await CommandFixture.ReadReadyAsync(ready,
+                () => true, caller.Token, (_, _) => { caller.Cancel(); return Task.FromException<string>(new IOException("controlled", unchecked((int)0x80070020))); }));
+            Assert.That(error!.CancellationToken, Is.EqualTo(caller.Token));
+        }
+        finally { File.Delete(ready); }
+    }
+
+    [Test]
+    public void ReadinessSharingViolationCannotHideExitedOwner()
+    {
+        var ready = Path.GetTempFileName(); var alive = true; var reads = 0;
+        try
+        {
+            Assert.ThrowsAsync<InvalidOperationException>(async () => await CommandFixture.ReadReadyAsync(ready, () => alive,
+                CancellationToken.None, (_, _) => { reads++; alive = false; return Task.FromException<string>(new IOException("controlled", unchecked((int)0x80070020))); }));
+            Assert.That(reads, Is.EqualTo(1));
+        }
+        finally { File.Delete(ready); }
+    }
+
     private static async Task<Exception> Catch(Task<string> work)
     {
         try { await Bounded(work); }
@@ -584,12 +720,7 @@ public sealed class CommandDeadlineTests
             try
             {
                 using var startup = new CancellationTokenSource(Watchdog);
-                while (!File.Exists(ready))
-                {
-                    if (!process.Alive) throw new InvalidOperationException("Owned command fixture exited before readiness.");
-                    await Task.Delay(20, startup.Token);
-                }
-                Assert.That(int.Parse(await RuntimeCompatibility.ReadAllTextAsync(ready, startup.Token)), Is.EqualTo(process.Id));
+                Assert.That(int.Parse(await ReadReadyAsync(ready, () => process.Alive, startup.Token)), Is.EqualTo(process.Id));
                 var driver = new RemoteWebDriver(executor, global::BrowserDock.WebDriver.Attachment.CreateOptions(new Uri("ws://127.0.0.1:1/devtools/browser/fixture")).ToCapabilities());
                 return (new Attachment(process, 0, executor, driver), memory);
             }
@@ -602,12 +733,42 @@ public sealed class CommandDeadlineTests
             }
             finally { File.Delete(ready); File.Delete(ready + ".tmp"); }
         }
+        internal static async Task<string> ReadReadyAsync(string ready, Func<bool> alive, CancellationToken token,
+            Func<string, CancellationToken, Task<string>>? read = null)
+        {
+            read ??= RuntimeCompatibility.ReadAllTextAsync;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!alive()) throw new InvalidOperationException("Owned command fixture exited before readiness.");
+                try { if (File.Exists(ready)) return await read(ready, token); }
+                catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+                {
+                    // Publication is atomic, but Windows file scanners can hold
+                    // a transient incompatible handle. Retry only this readiness
+                    // observation, within the existing startup token/budget.
+                }
+                await Task.Delay(20, token);
+            }
+        }
         public async ValueTask DisposeAsync()
         {
+            var failures = new List<Exception>();
             try { await Bounded(Browser.StopAsync().AsTask()); }
-            finally
+            catch (Exception error) { Record(error); }
+            foreach (var item in owned)
             {
-                foreach (var item in owned) await Bounded(item.DestroyAsync(CancellationToken.None));
+                try { await Bounded(item.DestroyAsync(CancellationToken.None)); }
+                catch (Exception error) { Record(error); }
+            }
+            if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException("Fixture stop and attachment cleanup failed.", failures);
+
+            void Record(Exception error)
+            {
+                Browser.RecordCleanup(error);
+                foreach (var item in owned) { item.RecordCleanup(error); TestFixtures.FailureEvidence.Write(error); }
+                failures.Add(error);
             }
         }
     }

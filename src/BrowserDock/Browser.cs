@@ -56,6 +56,16 @@ public sealed partial class Browser : IAsyncDisposable
         }
     }
     private Task? stopTask;
+    private readonly BoundedDiagnosticTrace stopTrace = new();
+    private string stopStage = "not-started";
+    internal void RecordCleanup(Exception error)
+    {
+        error.Data["Cleanup.BrowserTrace"] = stopTrace.Snapshot();
+        error.Data["Cleanup.BrowserSnapshot"] = JsonSerializer.Serialize(new { state = State.ToString(), stage = Volatile.Read(ref stopStage),
+            owner = stopTask?.Status.ToString(), lifecycle = lifecycle.CurrentCount, commands = commands.CurrentCount,
+            diagnosticWorkers = diagnostics.ActiveWorkersForTest });
+        cdp?.RecordCleanup(error);
+    }
     private Profile? profile;
     private OwnedProcess? chrome;
     private CdpController? cdp;
@@ -540,6 +550,7 @@ public sealed partial class Browser : IAsyncDisposable
             error is BrowserDockException { Category: ErrorCategory.AttachmentLost or ErrorCategory.OperationTimedOut }))
             await RecoverCommandAsync(used, closedEpoch, cleanupErrors).ConfigureAwait(false);
         if (failure.Data["DriverCleanupFailure"] is Exception ioFailure) cleanupErrors.Add($"driver I/O: {ioFailure.GetType().Name}");
+        if (cleanupErrors.Count != 0) used?.RecordCleanup(error);
         if (error is BrowserDockException browserError)
         {
             browserError.OperationId = id; browserError.Diagnostic = Health;
@@ -644,10 +655,11 @@ public sealed partial class Browser : IAsyncDisposable
     private async Task StopCoreAsync()
     {
         var failures = new List<string>();
-        var trace = new BoundedDiagnosticTrace();
+        var trace = stopTrace;
         var causes = new List<Exception>();
         void ObserveCleanup(string stage)
         {
+            Volatile.Write(ref stopStage, stage);
             try { trace.Add(stage, ("chromePid", chrome?.Id.ToString()), ("chromeAlive", chrome?.Alive.ToString()),
                 ("ownedTreeAlive", chrome?.TreeAlive.ToString()), ("driverPid", attachment?.Process.Id.ToString()),
                 ("driverAlive", attachment?.Process.Alive.ToString()), ("cdpHealthy", cdp?.Healthy.ToString())); }
