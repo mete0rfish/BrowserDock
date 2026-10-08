@@ -55,3 +55,36 @@ Use `ci:required` on the PR to run common contracts and Secret scan. If a run fa
 retain that attempt and inspect its TRX metadata before choosing a fix. Do not
 remove the case, increase timeouts or treat a passing rerun as root-cause evidence.
 Actual Windows browser verification and #41's browser failures are separate.
+
+## Concurrent CDP termination investigation
+
+`CdpCleanupRaceTests` races transport interruption with disposal while a receive
+is pending, repeating 128 fresh connections against one local CDP fixture server.
+It preserves the 15-second caller watchdog and checks that requests, pumps,
+subscriptions and the socket are gone. A late injected failure after completed
+disposal is allowed; incomplete disposal or other failures are retained.
+Another 128-connection case holds an unanswered command and an event callback,
+then releases two interruption callers, disposal and a dispatcher exception
+together. This covers active dispatch and real message traffic as well as an
+idle receive; a passing bounded stress run does not prove absence of a race.
+Two 256-connection cases start just one disposal caller, with a receive pending
+and with or without an unanswered command. Reader/dispatcher failure is then
+driven by the actual transport termination. Disposal runs on an observed worker
+so a synchronous stall before its first returned task cannot block the watchdog.
+
+The net481 common job sets `BROWSERDOCK_CLEANUP_EVIDENCE` to its result directory.
+When a fixture stop or the CDP race exceeds the existing watchdog, a separate
+.NET 10 process snapshots the owned test host with pinned ClrMD 3.1.512801 and
+writes managed thread IDs and method signatures to `cleanup-stacks-*.json`.
+No addresses, arguments, locals, environment values, memory dumps or heap data
+are emitted or uploaded. Collection has its own bounded diagnostic wait and
+cannot replace the primary timeout. The collector disposes its temporary snapshot.
+A net481 smoke test proves that a deliberately blocked managed thread appears.
+
+Read `Cleanup.CdpTrace` together with the method stacks. A `*-cancel-start` or
+`*-abort-start` without its corresponding end can distinguish synchronous
+termination from the later pump join. `WaitAsync` only bounds the task after
+`DisposeAsync` returns it; a synchronous cancellation/abort stall before its first
+await needs its own demonstrated cause. Neither the stress test nor a passing
+collector check establishes the historical failure's cause without captured
+failure evidence. Existing test selections and cleanup deadlines are unchanged.

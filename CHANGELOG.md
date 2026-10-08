@@ -48,6 +48,9 @@ Public changes are recorded here. Breaking changes during 0.x are described expl
 
 ### Fixed
 
+- Read Windows reference-runner version resources directly through the Windows
+  API, avoiding a PowerShell startup timeout without launching the binary.
+
 - Wait for complete, valid `DevToolsActivePort` contents in the Linux reference
   investigation within the original startup deadline, checking Chrome liveness
   between reads instead of treating file creation as endpoint readiness.

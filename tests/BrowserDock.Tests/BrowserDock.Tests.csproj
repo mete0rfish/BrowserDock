@@ -13,6 +13,8 @@
     <Compile Include="../Shared/HttpRequestTrace.cs" Link="Fixtures/HttpRequestTrace.cs" />
     <Compile Include="../Shared/FailureEvidence.cs" Link="Fixtures/FailureEvidence.cs" />
     <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
+    <Compile Include="../Shared/CleanupThreadEvidence.cs" Link="Fixtures/CleanupThreadEvidence.cs" />
+    <Compile Include="../Shared/CdpCleanupRaceTests.cs" Link="CdpCleanupRaceTests.cs" />
     <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />
     <Compile Include="../Shared/TextWaitTests.cs" Link="TextWaitTests.cs" />
     <Compile Include="../Shared/ElementClickTests.cs" Link="ElementClickTests.cs" />

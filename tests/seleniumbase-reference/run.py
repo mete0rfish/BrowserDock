@@ -1,5 +1,7 @@
 """One fixture host, sequential fresh browsers, separate artifacts per repetition."""
 import argparse
+import ctypes
+from ctypes import wintypes
 import hashlib
 import json
 import os
@@ -20,15 +22,34 @@ HERE = Path(__file__).resolve().parent
 
 
 def windows_product_version(binary):
-    # Keep the caller's literal path out of PowerShell source, including quotes,
-    # wildcard characters and Unicode. Reading metadata never launches Chrome.
-    script = ("$ErrorActionPreference='Stop'; "
-              "[Console]::Out.Write((Get-Item -LiteralPath "
-              "$env:BROWSERDOCK_VERSION_BINARY).VersionInfo.ProductVersion)")
-    return subprocess.check_output(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        env=dict(os.environ, BROWSERDOCK_VERSION_BINARY=str(binary)),
-        text=True, timeout=10).strip()
+    # Read the PE resource directly. Starting PowerShell can exceed the preflight
+    # budget on a cold CI runner; no process is needed for file metadata.
+    api = ctypes.WinDLL("version", use_last_error=True)
+    api.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+    api.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+    api.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID]
+    api.GetFileVersionInfoW.restype = wintypes.BOOL
+    api.VerQueryValueW.argtypes = [wintypes.LPCVOID, wintypes.LPCWSTR,
+                                 ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
+    api.VerQueryValueW.restype = wintypes.BOOL
+    path = str(binary)
+    size = api.GetFileVersionInfoSizeW(path, None)
+    if not size:
+        raise ctypes.WinError(ctypes.get_last_error())
+    resource = ctypes.create_string_buffer(size)
+    if not api.GetFileVersionInfoW(path, 0, size, resource):
+        raise ctypes.WinError(ctypes.get_last_error())
+    value = ctypes.c_void_p()
+    length = wintypes.UINT()
+    translations = []
+    if api.VerQueryValueW(resource, r"\VarFileInfo\Translation", ctypes.byref(value), ctypes.byref(length)):
+        words = ctypes.cast(value, ctypes.POINTER(wintypes.WORD))
+        translations = [(words[i], words[i + 1]) for i in range(0, length.value // 2 - 1, 2)]
+    for language, codepage in [*translations, (0x0409, 0x04b0), (0x0409, 0x04e4)]:
+        key = rf"\StringFileInfo\{language:04x}{codepage:04x}\ProductVersion"
+        if api.VerQueryValueW(resource, key, ctypes.byref(value), ctypes.byref(length)) and length.value:
+            return ctypes.wstring_at(value, length.value).rstrip("\0").strip()
+    return ""
 
 
 def read_chrome_version(binary):

@@ -14,6 +14,8 @@
     <Compile Include="../Shared/ReferenceEndpointReadinessTests.cs" Link="ReferenceEndpointReadinessTests.cs" />
     <Compile Include="../Shared/HighLevelReferenceTests.cs" Link="HighLevelReferenceTests.cs" />
     <Compile Include="../Shared/CommandDeadlineTests.cs" Link="CommandDeadlineTests.cs" />
+    <Compile Include="../Shared/CleanupThreadEvidence.cs" Link="Fixtures/CleanupThreadEvidence.cs" />
+    <Compile Include="../Shared/CdpCleanupRaceTests.cs" Link="CdpCleanupRaceTests.cs" />
     <Compile Include="../Shared/ElementWaitTests.cs" Link="ElementWaitTests.cs" />
     <Compile Include="../Shared/TextWaitTests.cs" Link="TextWaitTests.cs" />
     <Compile Include="../Shared/ElementClickTests.cs" Link="ElementClickTests.cs" />
@@ -45,5 +47,6 @@
   </ItemGroup>
   <Target Name="BuildFixtureHost" BeforeTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
     <MSBuild Projects="../BrowserDock.FixtureHost/BrowserDock.FixtureHost.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="TargetFramework;RuntimeIdentifier;PlatformTarget" />
+    <MSBuild Projects="../BrowserDock.CleanupInvestigation/BrowserDock.CleanupInvestigation.csproj" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="TargetFramework;RuntimeIdentifier;PlatformTarget" Condition="'$(TargetFramework)' == 'net481'" />
   </Target>
 </Project>
