@@ -65,6 +65,13 @@ app.Map("/cdp", async context =>
             requests.Enqueue(new { method, payload = root.Clone() });
             if (scenario == "drop") { socket.Abort(); return; }
             if (scenario == "hold") continue;
+            if (scenario == "cleanup-race")
+            {
+                // Keep the command unanswered and the next receive pending while
+                // the client synchronizes dispatcher failure with shutdown.
+                await Send(new { method = "Fixture.cleanupReady", @params = new { } });
+                continue;
+            }
             if (scenario == "reverse")
             {
                 deferred.Add((id, method));

@@ -63,6 +63,10 @@ is pending, repeating 128 fresh connections against one local CDP fixture server
 It preserves the 15-second caller watchdog and checks that requests, pumps,
 subscriptions and the socket are gone. A late injected failure after completed
 disposal is allowed; incomplete disposal or other failures are retained.
+Another 128-connection case holds an unanswered command and an event callback,
+then releases two interruption callers, disposal and a dispatcher exception
+together. This covers active dispatch and real message traffic as well as an
+idle receive; a passing bounded stress run does not prove absence of a race.
 
 The net481 common job sets `BROWSERDOCK_CLEANUP_EVIDENCE` to its result directory.
 When a fixture stop or the CDP race exceeds the existing watchdog, a separate
