@@ -107,7 +107,9 @@ public sealed class ElementInputTests
     [TestCase(false, false), TestCase(true, false), TestCase(false, true), TestCase(true, true)]
     public async Task EditableDescendantCannotClearInputOrSubmit(bool legacy, bool clear)
     {
-        await using var f = await Fixture.StartAsync();
+        var recoveries = 0;
+        await using var f = await Fixture.StartAsync((stage, _) =>
+        { if (stage == "command-recovery") Interlocked.Increment(ref recoveries); return default; });
         f.OnCommand = c => c.Name == DriverCommand.GetElementTagName ? Reply("span")
             : c.Name == DriverCommand.GetElementProperty && (string)c.Parameters!["name"]! == "isContentEditable" ? Reply("true")
             : c.Name == DriverCommand.ExecuteScript && ((string)c.Parameters!["script"]!).Contains("browserDockEditingHost") ? Reply(false)
@@ -115,7 +117,7 @@ public sealed class ElementInputTests
         Assert.That(Category(await Catch(Input(f, legacy, clear, "text\n", options: Options with
         { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(5) }))), Is.EqualTo(ErrorCategory.OperationTimedOut));
         Assert.That(Actions(f), Is.Empty);
-        Assert.That(f.Core.Executor.Disposals, Is.Zero);
+        AssertObservationTimeoutState(f, recoveries);
     }
 
     [TestCase(false, "file"), TestCase(true, "file")]
@@ -124,7 +126,9 @@ public sealed class ElementInputTests
     [TestCase(false, "readonly"), TestCase(true, "readonly")]
     public async Task UnsupportedOrReadOnlyInputCannotBeMadeEditableByContentEditable(bool legacy, string kind)
     {
-        await using var f = await Fixture.StartAsync();
+        var recoveries = 0;
+        await using var f = await Fixture.StartAsync((stage, _) =>
+        { if (stage == "command-recovery") Interlocked.Increment(ref recoveries); return default; });
         f.OnCommand = c =>
         {
             if (c.Name == DriverCommand.GetElementProperty)
@@ -135,7 +139,47 @@ public sealed class ElementInputTests
         Assert.That(Category(await Catch(Input(f, legacy, true, "text", options: Options with
         { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(5) }))), Is.EqualTo(ErrorCategory.OperationTimedOut));
         Assert.That(Actions(f), Is.Empty);
-        Assert.That(f.Core.Executor.Disposals, Is.Zero);
+        AssertObservationTimeoutState(f, recoveries);
+    }
+
+    private static void AssertObservationTimeoutState(Fixture f, int recoveries)
+    {
+        // A deadline during polling retains the attachment. Expiry while the
+        // observation command is still running requires bounded recovery instead.
+        Assert.That(recoveries, Is.InRange(0, 1));
+        Assert.That(f.Core.Executor.Disposals, Is.EqualTo(recoveries));
+        Assert.That(f.Core.Browser.State, Is.EqualTo(recoveries == 0 ? BrowserState.WebDriverAttached : BrowserState.CdpOnly));
+    }
+
+    [TestCase(false, false), TestCase(true, false), TestCase(false, true), TestCase(true, true)]
+    public async Task InFlightUnsupportedEditorObservationRecoversWithoutInput(bool legacy, bool clear)
+    {
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recovering = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var f = await Fixture.StartAsync((stage, _) =>
+        { if (stage == "command-recovery") recovering.TrySetResult(true); return default; });
+        f.Core.Attachment.BeforeDispatchForTest = () => Task.CompletedTask;
+        f.OnCommand = c => c.Name == DriverCommand.GetElementTagName ? Reply("span")
+            : c.Name == DriverCommand.ExecuteScript && ((string)c.Parameters!["script"]!).Contains("browserDockEditingHost")
+                ? HoldObservation() : Ready(c);
+        try
+        {
+            var pending = Input(f, legacy, clear, "text\n", options: Options with
+            { Timeout = TimeSpan.FromSeconds(1), PollInterval = TimeSpan.FromSeconds(5) });
+            await Bounded(entered.Task); await Bounded(recovering.Task);
+            Assert.That(Category(await Catch(pending)), Is.EqualTo(ErrorCategory.OperationTimedOut));
+            Assert.That(Actions(f), Is.Empty);
+            AssertObservationTimeoutState(f, 1);
+        }
+        finally
+        {
+            release.Set();
+            if (f.Core.Attachment.InvocationForTest is { } worker)
+                try { await Bounded(worker); } catch (OperationCanceledException) { }
+        }
+
+        Response HoldObservation() { entered.TrySetResult(true); release.Wait(); return Reply(false); }
     }
 
     [TestCase(false, "clear"), TestCase(true, "clear")]
