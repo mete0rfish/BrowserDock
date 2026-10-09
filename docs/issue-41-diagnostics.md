@@ -1,5 +1,8 @@
 # Issue #41: navigation failure evidence
 
+The next execution sequence and coverage-restoration gates are in the
+[issue #41 reproduction plan](issue-41-reproduction-plan.md).
+
 This change fixes two demonstrated event-wait failure paths and adds evidence for
 the remaining Windows investigation. It does not close #41 or restore the six
 removed cases or the quarantined nested-frame case.

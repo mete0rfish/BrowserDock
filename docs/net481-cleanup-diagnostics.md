@@ -1,5 +1,8 @@
 # Owned-process cleanup investigation
 
+The next bounded executions and closure criteria are in the
+[issue #51 reproduction plan](issue-51-reproduction-plan.md).
+
 [Issue #51](https://github.com/mete0rfish/BrowserDock/issues/51) tracks the
 intermittent net481 common-contract failures observed on PR #50. The first
 execution failed 16 cases during fixture disposal; the same source passed all
