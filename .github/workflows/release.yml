@@ -44,7 +44,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Legacy $tfm failed" }
             ./scripts/assert-suite-results.ps1 -Path ".artifacts/common/legacy-$tfm.trx" -Suite Common -Project Legacy
           }
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: package-common-${{ env.RELEASE_COMMIT }}
@@ -74,7 +74,7 @@ jobs:
           & ./tests/BrowserDock.ClassicConsumer/bin/Release/ClassicConsumer.exe
           if ($LASTEXITCODE -ne 2) { throw 'Package consumer load failed.' }
           exit 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-${{ env.RELEASE_COMMIT }}
           path: .artifacts/packages/*.*nupkg
